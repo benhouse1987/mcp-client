@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "get_current_time_python": {
+      "description": "Gets the current system time using a Python script. You need to ensure 'python' is in the system PATH and you have a script named 'mcp_server_time_script.py' in the application's root directory that prints the time.",
+      "command": "python",
+      "args": ["mcp_server_time_script.py"],
+      "workingDirectory": null
+    },
+    "get_current_date_os": {
+      "description": "Gets the current system date using OS command. Uses 'date' for Linux/macOS. For Windows, this specific command might need adjustment (e.g., 'cmd', '/c', 'date /t').",
+      "command": "date",
+      "args": [],
+      "workingDirectory": null
+    },
+    "list_directory_contents": {
+      "description": "Lists files and folders in a specified directory. For Windows, use 'dir' as command and adjust args if needed.",
+      "command": "ls",
+      "args_template": ["-la", "{directory_path}"],
+      "workingDirectory": null
+    },
+    "create_folder_example": {
+      "description": "Creates a new folder at a specified path. The path should be absolute. For Windows, use 'mkdir' or 'cmd /c mkdir'.",
+      "command": "mkdir",
+      "args_template": ["{folder_path_to_create}"],
+      "workingDirectory": null
+    }
+  }
+}
