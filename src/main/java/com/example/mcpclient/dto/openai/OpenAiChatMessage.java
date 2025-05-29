@@ -4,6 +4,10 @@ public class OpenAiChatMessage {
     private String role;
     private String content;
 
+    // Default constructor for Jackson
+    public OpenAiChatMessage() {
+    }
+
     public OpenAiChatMessage(String role, String content) {
         this.role = role;
         this.content = content;

@@ -8,6 +8,10 @@ public class OpenAiChatResponseChoice {
     private OpenAiChatMessage message;
     // Add finish_reason if needed
 
+    // Default constructor for Jackson
+    public OpenAiChatResponseChoice() {
+    }
+
     // Getters and setters
     public int getIndex() {
         return index;

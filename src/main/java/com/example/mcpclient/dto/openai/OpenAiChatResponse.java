@@ -12,6 +12,10 @@ public class OpenAiChatResponse {
     private List<OpenAiChatResponseChoice> choices;
     // Add usage statistics if needed
 
+    // Default constructor for Jackson
+    public OpenAiChatResponse() {
+    }
+
     // Getters and setters
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }

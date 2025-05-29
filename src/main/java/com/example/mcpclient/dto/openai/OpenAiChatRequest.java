@@ -7,6 +7,10 @@ public class OpenAiChatRequest {
     private List<OpenAiChatMessage> messages;
     // Add other parameters like temperature, max_tokens if needed
 
+    // Default constructor for Jackson
+    public OpenAiChatRequest() {
+    }
+
     public OpenAiChatRequest(String model, List<OpenAiChatMessage> messages) {
         this.model = model;
         this.messages = messages;
