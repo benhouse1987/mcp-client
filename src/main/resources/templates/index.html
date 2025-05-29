@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>MCP Client</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="text"] { width: calc(100% - 22px); padding: 10px; border: 1px solid #ddd; border-radius: 3px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .result-section { margin-top: 20px; padding: 15px; background-color: #f9f9f9; border: 1px solid #eee; border-radius: 3px; }
+        h2 { margin-top: 0; }
+        h3 { margin-top: 1em; margin-bottom: 0.5em; }
+        pre { background-color: #eee; padding: 10px; border-radius: 3px; white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>MCP Client Interface</h2>
+
+        <form th:action="@{/execute}" method="post" class="form-group">
+            <div>
+                <label for="command">Enter Command:</label>
+                <input type="text" id="command" name="command" th:value="${command}" required autofocus />
+            </div>
+            <br/>
+            <div>
+                <button type="submit">Execute</button>
+            </div>
+        </form>
+
+        <div th:if="${not #strings.isEmpty(command) or not #strings.isEmpty(llmResponse) or not #strings.isEmpty(mcpResponse) or not #strings.isEmpty(finalOutcome)}">
+            <div class="result-section">
+                <h3>Execution Details:</h3>
+                
+                <div th:if="${not #strings.isEmpty(command)}">
+                    <h4>Your Command:</h4>
+                    <pre th:text="${command}"></pre>
+                </div>
+
+                <div th:if="${not #strings.isEmpty(llmResponse)}">
+                    <h4>Large Model Response:</h4>
+                    <pre th:text="${llmResponse}"></pre>
+                </div>
+
+                <div th:if="${not #strings.isEmpty(mcpResponse)}">
+                    <h4>MCP Server Response:</h4>
+                    <pre th:text="${mcpResponse}"></pre>
+                </div>
+                
+                <h4>Final Outcome:</h4>
+                <pre th:text="${finalOutcome}"></pre>
+            </div>
+        </div>
+        <div th:unless="${not #strings.isEmpty(command) or not #strings.isEmpty(llmResponse) or not #strings.isEmpty(mcpResponse) or not #strings.isEmpty(finalOutcome)}">
+             <p th:text="${finalOutcome ?: 'Enter a command and click Execute.'}"></p>
+        </div>
+    </div>
+</body>
+</html>
