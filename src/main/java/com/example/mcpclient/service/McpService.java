@@ -14,6 +14,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.Collections; // Added for Java 8 compatibility
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -41,7 +42,7 @@ public class McpService {
             if (!resource.exists()) {
                 logger.error("MCP configuration file not found at classpath: {}", mcpConfigPath);
                 // Initialize with empty map to prevent NullPointerExceptions, or throw an exception
-                mcpServerConfigurations = Map.of(); 
+                mcpServerConfigurations = Collections.emptyMap(); 
                 return;
             }
             McpConfigRootDto configRoot = objectMapper.readValue(resource.getInputStream(), McpConfigRootDto.class);
@@ -51,11 +52,11 @@ public class McpService {
                 mcpServerConfigurations.forEach((name, config) -> logger.debug("Loaded MCP Server: {} -> Command: {}", name, config.getCommand()));
             } else {
                 logger.warn("MCP configuration file {} is empty or malformed.", mcpConfigPath);
-                mcpServerConfigurations = Map.of();
+                mcpServerConfigurations = Collections.emptyMap();
             }
         } catch (IOException e) {
             logger.error("Failed to load MCP server configurations from {}: {}", mcpConfigPath, e.getMessage(), e);
-            mcpServerConfigurations = Map.of(); // Fallback to empty configurations
+            mcpServerConfigurations = Collections.emptyMap(); // Fallback to empty configurations
         }
     }
 
@@ -75,7 +76,7 @@ public class McpService {
         } else if (config.getArgs() != null) {
             finalArgs = config.getArgs();
         } else {
-            finalArgs = List.of();
+            finalArgs = Collections.emptyList();
         }
 
         List<String> commandAndArgs = new java.util.ArrayList<>();
