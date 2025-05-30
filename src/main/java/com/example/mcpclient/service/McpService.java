@@ -87,7 +87,7 @@ public class McpService {
 
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(commandAndArgs);
-            if (config.getWorkingDirectory() != null && !config.getWorkingDirectory().isBlank()) {
+            if (config.getWorkingDirectory() != null && !config.getWorkingDirectory().trim().isEmpty()) {
                 File workingDir = new File(config.getWorkingDirectory());
                 if (workingDir.exists() && workingDir.isDirectory()) {
                     processBuilder.directory(workingDir);

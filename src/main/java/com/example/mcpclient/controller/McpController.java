@@ -86,10 +86,10 @@ public class McpController {
             LlmToolCallDto llmResponse = largeModelService.processText(userInputCommand);
 
             String llmText = llmResponse.getTextResponse();
-            if (llmText == null || llmText.isBlank()) {
+            if (llmText == null || llmText.trim().isEmpty()) {
                 // If LLM calls a tool, it might not have a separate text_response.
                 // If it doesn't call a tool, and text_response is empty, then it's truly an empty response.
-                if (llmResponse.getToolToUse() != null && !llmResponse.getToolToUse().isBlank()) {
+                if (llmResponse.getToolToUse() != null && !llmResponse.getToolToUse().trim().isEmpty()) {
                     llmText = "LLM is attempting to use tool: " + llmResponse.getToolToUse() + ". See tool output below.";
                 } else {
                     llmText = "LLM did not provide a direct text response.";
@@ -97,7 +97,7 @@ public class McpController {
             }
             model.addAttribute("llmTextResponse", llmText);
 
-            if (llmResponse.getToolToUse() != null && !llmResponse.getToolToUse().isBlank()) {
+            if (llmResponse.getToolToUse() != null && !llmResponse.getToolToUse().trim().isEmpty()) {
                 String toolName = llmResponse.getToolToUse();
                 model.addAttribute("mcpCommandName", "LLM decided to use tool: " + toolName);
                 logger.info("LLM requested to use tool: {} with parameters: {}", toolName, llmResponse.getParameters());

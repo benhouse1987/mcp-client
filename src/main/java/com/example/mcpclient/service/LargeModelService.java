@@ -19,6 +19,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.Collections; // Added for Java 8 compatibility
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -55,12 +56,12 @@ public class LargeModelService {
         // Consider if mcpServerConfigurations could be null if loading failed.
         if (mcpService == null) {
             logger.warn("McpService is null in LargeModelService.getAvailableMcpTools()");
-            return Map.of();
+            return Collections.emptyMap();
         }
         Map<String, McpServerDetailsDto> tools = mcpService.getMcpServerConfigurations();
         if (tools == null) {
              logger.warn("McpService.getMcpServerConfigurations() returned null. Defaulting to empty map of tools.");
-             return Map.of();
+             return Collections.emptyMap();
         }
         return tools;
     }
