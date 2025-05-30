@@ -4,17 +4,20 @@
     <meta charset="UTF-8">
     <title>MCP Client</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; }
-        .container { max-width: 800px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 900px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; }
-        input[type="text"] { width: calc(100% - 22px); padding: 10px; border: 1px solid #ddd; border-radius: 3px; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"] { width: calc(100% - 24px); padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
         button:hover { background-color: #0056b3; }
-        .result-section { margin-top: 20px; padding: 15px; background-color: #f9f9f9; border: 1px solid #eee; border-radius: 3px; }
-        h2 { margin-top: 0; }
-        h3 { margin-top: 1em; margin-bottom: 0.5em; }
-        pre { background-color: #eee; padding: 10px; border-radius: 3px; white-space: pre-wrap; word-wrap: break-word; }
+        .result-section, .actions-section { margin-top: 20px; padding: 15px; background-color: #f9f9f9; border: 1px solid #eee; border-radius: 4px; }
+        h2 { margin-top: 0; color: #007bff; }
+        h3 { margin-top: 1em; margin-bottom: 0.5em; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        h4 { margin-top: 1em; margin-bottom: 0.3em; color: #555; }
+        pre { background-color: #eee; padding: 10px; border-radius: 3px; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+        .action-item { margin-bottom: 10px; padding-left: 15px; border-left: 3px solid #007bff; }
+        .action-item strong { color: #0056b3; }
     </style>
 </head>
 <body>
@@ -23,8 +26,8 @@
 
         <form th:action="@{/execute}" method="post" class="form-group">
             <div>
-                <label for="command">Enter Command:</label>
-                <input type="text" id="command" name="command" th:value="${command}" required autofocus />
+                <label for="command">Enter Command / Ask a Question:</label>
+                <input type="text" id="command" name="command" th:value="${userInput}" required autofocus />
             </div>
             <br/>
             <div>
@@ -32,32 +35,47 @@
             </div>
         </form>
 
-        <div th:if="${not #strings.isEmpty(command) or not #strings.isEmpty(llmResponse) or not #strings.isEmpty(mcpResponse) or not #strings.isEmpty(finalOutcome)}">
-            <div class="result-section">
-                <h3>Execution Details:</h3>
-                
-                <div th:if="${not #strings.isEmpty(command)}">
-                    <h4>Your Command:</h4>
-                    <pre th:text="${command}"></pre>
-                </div>
-
-                <div th:if="${not #strings.isEmpty(llmResponse)}">
-                    <h4>Large Model Response:</h4>
-                    <pre th:text="${llmResponse}"></pre>
-                </div>
-
-                <div th:if="${not #strings.isEmpty(mcpResponse)}">
-                    <h4>MCP Server Response:</h4>
-                    <pre th:text="${mcpResponse}"></pre>
-                </div>
-                
-                <h4>Final Outcome:</h4>
-                <pre th:text="${finalOutcome}"></pre>
+        <!-- Section for Available MCP Commands -->
+        <div class="actions-section" th:if="${availableMcpCommands != null && !availableMcpCommands.isEmpty()}">
+            <h3>Available System Actions (Local Commands)</h3>
+            <div th:each="mcpCmd : ${availableMcpCommands}" class="action-item">
+                <strong th:text="${mcpCmd.name}">Tool Name</strong>: <span th:text="${mcpCmd.description}">Tool Description</span>
             </div>
         </div>
-        <div th:unless="${not #strings.isEmpty(command) or not #strings.isEmpty(llmResponse) or not #strings.isEmpty(mcpResponse) or not #strings.isEmpty(finalOutcome)}">
-             <p th:text="${finalOutcome ?: 'Enter a command and click Execute.'}"></p>
+
+        <!-- Section for Results -->
+        <div class="result-section" th:if="${userInput != null && !userInput.isEmpty()}">
+            <h3>Execution Details:</h3>
+            
+            <div>
+                <h4>Your Input:</h4>
+                <pre th:text="${userInput}"></pre>
+            </div>
+
+            <div th:if="${llmTextResponse != null && !llmTextResponse.isEmpty()}">
+                <h4>LLM Response / Status:</h4>
+                <pre th:text="${llmTextResponse}"></pre>
+            </div>
+
+            <div th:if="${mcpCommandName != null && !mcpCommandName.isEmpty()}">
+                <h4>MCP Action:</h4>
+                <pre th:text="${mcpCommandName}"></pre>
+            </div>
+            
+            <div th:if="${mcpCommandOutput != null && !mcpCommandOutput.isEmpty()}">
+                <h4>MCP Action Output:</h4>
+                <pre th:text="${mcpCommandOutput}"></pre>
+            </div>
         </div>
+        <div class="result-section" th:if="${(userInput == null || userInput.isEmpty()) && (llmTextResponse != null && !llmTextResponse.isEmpty() && llmTextResponse != 'Awaiting your command...')}">
+             <!-- For initial message if not "Awaiting..." and no user input yet (e.g. error on load) -->
+             <pre th:text="${llmTextResponse}"></pre>
+        </div>
+         <div class="result-section" th:if="${(userInput == null || userInput.isEmpty()) && (llmTextResponse != null && llmTextResponse == 'Awaiting your command...')}">
+             <p th:text="${llmTextResponse}"></p>
+        </div>
+
+
     </div>
 </body>
 </html>
