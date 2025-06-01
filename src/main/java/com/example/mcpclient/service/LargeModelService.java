@@ -34,7 +34,6 @@ public class LargeModelService {
 
     @Value("${large.model.name}")
     private String modelName; // Should be gpt-4o
-    public String getModelName() { return modelName; }
 
     @Value("${large.model.key}")
     private String apiKey;
@@ -69,7 +68,15 @@ public class LargeModelService {
 
 
     public LlmToolCallDto processText(String inputText) {
-        logger.info("Processing input with LLM ({}) for initial call: '{}'", modelName, inputText);        String systemMessageContent = buildSystemMessageWithTools();                List<OpenAiChatMessage> messages = new ArrayList<>();        messages.add(new OpenAiChatMessage("system", systemMessageContent));        messages.add(new OpenAiChatMessage("user", inputText));                OpenAiChatRequest chatRequest = new OpenAiChatRequest(modelName, messages);        return processOpenAiRequest(chatRequest);
+            logger.info("Processing input with LLM ({}) for initial call: '{}'", modelName, inputText);
+            String systemMessageContent = buildSystemMessageWithTools();
+            List<OpenAiChatMessage> messages = new ArrayList<>();
+            messages.add(new OpenAiChatMessage("system", systemMessageContent));
+            messages.add(new OpenAiChatMessage("user", inputText));
+            OpenAiChatRequest chatRequest = new OpenAiChatRequest(modelName, messages);
+            // Potentially set response_format if needed, e.g., chatRequest.setResponseFormat(Map.of("type", "json_object"));
+            return processOpenAiRequest(chatRequest);
+    }
 
     private String buildSystemMessageWithTools() {
         Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
@@ -85,7 +92,6 @@ public class LargeModelService {
         sb.append("The \"parameters\" object should only contain parameters relevant to the chosen tool. ");
         sb.append("If you do not need to use a tool, or if no tool is suitable for the user's request, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. ");
         sb.append("Ensure your entire response is a single, valid JSON object and nothing else. Do not add any text before or after the JSON object. ");
-        sb.append("If the task requires multiple steps or commands, call the 'cmd' tool for the first command. You will receive its output and can then decide on subsequent actions or provide a final answer. \n");
         sb.append("Available tools:\n");
 
         tools.forEach((name, config) -> {
@@ -104,109 +110,4 @@ public class LargeModelService {
         });
         return sb.toString();
     }
-    public String buildFollowUpSystemMessage(String originalUserQuery, String executedCommandName, Map<String, String> executedCommandParams, String commandOutput) {
-        Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
-        StringBuilder sb = new StringBuilder();
-        sb.append("You are a helpful assistant. You previously executed a command based on the user's original query.\\n");
-        sb.append("Original User Query: '").append(originalUserQuery).append("'\\n");
-        sb.append("Executed Command: '").append(executedCommandName).append("' with parameters: ").append(executedCommandParams.toString()).append("'\\n");
-        sb.append("Command Output:\\n").append(commandOutput).append("'\\n\\n");
-        sb.append("Based on this output and the original query, you can either request another command using the 'cmd' tool or provide a final answer to the user.\\n");
-        sb.append("If you need to use the 'cmd' tool again, respond ONLY with a single JSON object matching this exact structure: \\n");
-        sb.append("{\"tool_to_use\": \"cmd\", \"parameters\": {\"user_command\": \"<full_windows_command>\"}, \"text_response\": \"<optional_summary>\"}. \\n");
-        sb.append("If you want to provide a final answer, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. \\n");
-        sb.append("Ensure your entire response is a single, valid JSON object and nothing else.\\n");
-
-        if (tools == null || tools.isEmpty()) {
-            sb.append("No tools are currently available.\\n");
-        } else {
-            sb.append("Available tools (primarily 'cmd'):\\n");
-            tools.forEach((name, config) -> {
-                sb.append("- Tool Name: `").append(name).append("`\\n");
-                sb.append("  Description: ").append(config.getDescription()).append("\\n");
-                if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
-                    String params = config.getArgsTemplate().stream()
-                        .map(arg -> arg.replaceAll("[\\{\\}]", "")) // Corrected: removeAll needs \\ for regex {}
-                        .filter(arg -> !arg.contains(" ") && !arg.isEmpty())
-                        .collect(Collectors.joining(", "));
-                    if (!params.isEmpty()) {
-                        sb.append("  Parameters to provide: `").append(params).append("`\\n");
-                    }
-                }
-                sb.append("\\n");
-            });
-        }
-        return sb.toString();
-    }
-
-    // New method to handle a pre-built OpenAiChatRequest
-    public LlmToolCallDto processOpenAiRequest(OpenAiChatRequest chatRequest) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(apiKey);
-
-        try {
-            String requestBody = objectMapper.writeValueAsString(chatRequest);
-            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-            logger.debug("OpenAI Request Body: {}", requestBody);
-
-            ResponseEntity<OpenAiChatResponse> responseEntity = restTemplate.postForEntity(
-                    modelUrl, entity, OpenAiChatResponse.class);
-
-            OpenAiChatResponse chatResponse = responseEntity.getBody();
-
-            if (chatResponse != null && chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
-                String llmResponseContent = chatResponse.getChoices().get(0).getMessage().getContent();
-                logger.info("Raw response from LLM (before stripping): {}", llmResponseContent);
-                // Strip markdown fences if present
-                if (llmResponseContent != null && llmResponseContent.startsWith("```json")) {
-                    llmResponseContent = llmResponseContent.substring(7);
-                }
-                if (llmResponseContent != null && llmResponseContent.endsWith("```")) {
-                    llmResponseContent = llmResponseContent.substring(0, llmResponseContent.length() - 3);
-                }
-                if (llmResponseContent != null) {
-                    llmResponseContent = llmResponseContent.trim();
-                }
-                logger.info("Raw response from LLM (after stripping): {}", llmResponseContent);
-
-                try {
-                    LlmToolCallDto toolCall = objectMapper.readValue(llmResponseContent, LlmToolCallDto.class);
-                    if (toolCall.getToolToUse() != null || toolCall.getTextResponse() != null) {
-                        return toolCall;
-                    }
-                    logger.warn("LLM response parsed as JSON but not a valid tool call or text_response structure. Content: {}", llmResponseContent);
-                    LlmToolCallDto ambiguousJsonResponse = new LlmToolCallDto();
-                    ambiguousJsonResponse.setTextResponse(llmResponseContent);
-                    return ambiguousJsonResponse;
-                } catch (JsonProcessingException e) {
-                    logger.warn("Could not parse LLM response as JSON tool call: {}. Treating as plain text.", e.getMessage());
-                    LlmToolCallDto textOnlyResponse = new LlmToolCallDto();
-                    textOnlyResponse.setTextResponse(llmResponseContent);
-                    return textOnlyResponse;
-                }
-            }
-            logger.warn("No response choices received from LLM or response was empty.");
-            LlmToolCallDto errorResponse = new LlmToolCallDto();
-            errorResponse.setTextResponse("Error: No response from model or response was empty.");
-            return errorResponse;
-
-        } catch (HttpClientErrorException e) {
-            logger.error("HttpClientErrorException calling OpenAI: {} - {}", e.getStatusCode(), e.getResponseBodyAsString(), e);
-            LlmToolCallDto errorResponse = new LlmToolCallDto();
-            errorResponse.setTextResponse("Error from LLM API: " + e.getStatusCode() + " - " + e.getResponseBodyAsString());
-            return errorResponse;
-        } catch (JsonProcessingException e) {
-            logger.error("Error serializing request for OpenAI: {}", e.getMessage(), e);
-            LlmToolCallDto errorResponse = new LlmToolCallDto();
-            errorResponse.setTextResponse("Error preparing request for LLM: " + e.getMessage());
-            return errorResponse;
-        } catch (Exception e) {
-            logger.error("Error processing text with Large Model: {}", e.getMessage(), e);
-            LlmToolCallDto errorResponse = new LlmToolCallDto(); // Corrected LlmToolLlmToolCallDto typo here
-            errorResponse.setTextResponse("Error: Could not connect to Large Model or process its response. " + e.getMessage());
-            return errorResponse;
-        }
-    }
-
 }
