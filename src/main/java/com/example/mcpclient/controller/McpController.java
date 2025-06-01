@@ -1,8 +1,5 @@
 package com.example.mcpclient.controller;
 
-import com.example.mcpclient.dto.openai.OpenAiChatRequest;
-import com.example.mcpclient.dto.openai.OpenAiChatMessage;
-
 import com.example.mcpclient.dto.llm.LlmToolCallDto;
 import com.example.mcpclient.dto.mcp.McpServerDetailsDto; // Import this
 import com.example.mcpclient.service.LargeModelService;
@@ -115,7 +112,7 @@ public class McpController {
                     (String) model.getAttribute("lastToolOutput")
                 );
                 messages.add(new OpenAiChatMessage("system", systemMessage));
-                messages.add(new OpenAiChatMessage("user", "Based on the previous command\\'s output, what is the next step or the final answer?"));
+                messages.add(new OpenAiChatMessage("user", "Based on the previous command's output, what is the next step or the final answer?"));
                 chatRequest = new OpenAiChatRequest(openAiModelName, messages);
                 llmResponse = largeModelService.processOpenAiRequest(chatRequest);
             }
@@ -139,6 +136,10 @@ public class McpController {
                     break;
                 }
 
+
+                if ("cmd".equals(toolName) && toolParameters.containsKey("user_command")) {
+                    conversationHistoryForDisplay.add("Executing command: `" + toolParameters.get("user_command") + "`");
+                }
                 String mcpOutput = mcpService.executeMcpCommand(toolName, toolParameters);
                 conversationHistoryForDisplay.add("Tool '" + toolName + "' output:\n" + mcpOutput);
                 model.addAttribute("mcpCommandOutput", mcpOutput);
@@ -152,6 +153,7 @@ public class McpController {
                 }
             } else {
                 logger.info("LLM provided a final response or no tool was called. Ending interaction loop.");
+                model.addAttribute("conversationHistory", conversationHistoryForDisplay);
                 break;
             }
         }

@@ -1,5 +1,7 @@
 package com.example.mcpclient.service;
 
+import java.nio.charset.StandardCharsets;
+
 import com.example.mcpclient.dto.mcp.McpConfigRootDto;
 import com.example.mcpclient.dto.mcp.McpServerDetailsDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -79,6 +81,13 @@ public class McpService {
             finalArgs = Collections.emptyList();
         }
 
+        // Automatically prefix chcp 65001 for cmd.exe to ensure UTF-8 output
+        if ("cmd.exe".equals(config.getCommand()) && "mcp_servers.json".equals(this.mcpConfigPath) && finalArgs != null && finalArgs.size() == 2 && "/c".equals(finalArgs.get(0))) {
+            String originalUserCommand = finalArgs.get(1);
+            finalArgs.set(1, "chcp 65001 > nul && " + originalUserCommand);
+            logger.info("Modified user command for cmd.exe to include chcp 65001. New command part: {}", finalArgs.get(1));
+        }
+
         List<String> commandAndArgs = new java.util.ArrayList<>();
         commandAndArgs.add(config.getCommand());
         commandAndArgs.addAll(finalArgs);
@@ -101,7 +110,7 @@ public class McpService {
 
             // Capture output
             StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append(System.lineSeparator());
@@ -110,7 +119,7 @@ public class McpService {
 
             // Capture error
             StringBuilder errorOutput = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     errorOutput.append(line).append(System.lineSeparator());
