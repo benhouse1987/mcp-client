@@ -188,7 +188,24 @@ public class LargeModelService {
         sb.append("Original User Query: '").append(originalUserQuery).append("'\\n");
         sb.append("Executed Command: '").append(executedCommandName).append("' with parameters: ").append(executedCommandParams.toString()).append("'\\n");
         sb.append("Command Output:\\n").append(commandOutput).append("'\\n\\n");
-        sb.append("Based on this output and the original query, you can either request another command using the 'cmd' tool or provide a final answer to the user.\\n");
+        boolean commandFailed = false;
+        if (commandOutput != null &&
+            (commandOutput.startsWith("Error executing") ||
+             commandOutput.contains("(exit code ") ||
+             commandOutput.toLowerCase().contains("is not recognized as an internal or external command") ||
+             commandOutput.toLowerCase().contains("cannot find the path specified") ||
+             commandOutput.toLowerCase().contains("access is denied"))) {
+            commandFailed = true;
+            logger.info("Command execution detected as failed. Modifying LLM prompt for suggestions.");
+        }
+
+        if (commandFailed) {
+            sb.append("The previous command failed or produced an error (see 'Command Output' above). ");
+            sb.append("Please analyze the error message and suggest how to fix the command, or propose an alternative command to achieve the user's original goal. ");
+            sb.append("You can then request a corrected 'cmd' tool call with the fixed command (using 'user_command' parameter), or if you have a different suggestion, provide it as a textual response using the 'text_response' field only.\\n");
+        } else {
+            sb.append("Based on this output and the original query, you can either request another command using the 'cmd' tool or provide a final answer to the user.\\n");
+        }
         sb.append("If you need to use the 'cmd' tool again, respond ONLY with a single JSON object matching this exact structure: \\n");
         sb.append("{\"tool_to_use\": \"cmd\", \"parameters\": {\"user_command\": \"<full_windows_command>\"}, \"text_response\": \"<optional_summary>\"}. \\n");
         sb.append("If you want to provide a final answer, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. \\n");

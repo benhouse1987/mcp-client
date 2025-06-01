@@ -1,5 +1,4 @@
 package com.example.mcpclient.service;
-
 import java.nio.charset.StandardCharsets;
 
 import com.example.mcpclient.dto.mcp.McpConfigRootDto;
@@ -84,7 +83,7 @@ public class McpService {
         // Automatically prefix chcp 65001 for cmd.exe to ensure UTF-8 output
         if ("cmd.exe".equals(config.getCommand()) && "mcp_servers.json".equals(this.mcpConfigPath) && finalArgs != null && finalArgs.size() == 2 && "/c".equals(finalArgs.get(0))) {
             String originalUserCommand = finalArgs.get(1);
-            finalArgs.set(1, "chcp 65001 > nul && " + originalUserCommand);
+            finalArgs.set(1, "chcp 65001 && " + originalUserCommand); // Removed "> nul"
             logger.info("Modified user command for cmd.exe to include chcp 65001. New command part: {}", finalArgs.get(1));
         }
 
