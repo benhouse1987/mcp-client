@@ -7,7 +7,7 @@
         "{user_command}"
       ],
       "description": "Executes a Windows command. Provide the full command string as the 'user_command' parameter. For example, to list directory contents, set 'user_command' to 'dir C:\\'.",
-      "working_directory": ""
+      "working_directory": "C:\\aidir"
     }
   }
 }

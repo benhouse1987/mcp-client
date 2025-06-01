@@ -74,61 +74,108 @@ public class McpController {
         return "index";
     }
 
+    private static final int MAX_LLM_ITERATIONS = 5; // Prevent infinite loops
+
     @PostMapping("/execute")
-    public String executeCommand(@RequestParam("command") String userInputCommand, Model model) {
-        logger.info("Received user input: {}", userInputCommand);
-        model.addAttribute("userInput", userInputCommand);
-        model.addAttribute("llmTextResponse", "Processing with LLM..."); 
-        model.addAttribute("mcpCommandName", "");
-        model.addAttribute("mcpCommandOutput", "");
+    public String executeCommand(@RequestParam("command") String originalUserInput, Model model) {
+        logger.info("Received original user input: {}", originalUserInput);
+        model.addAttribute("userInput", originalUserInput);
 
-        try {
-            LlmToolCallDto llmResponse = largeModelService.processText(userInputCommand);
+        List<String> conversationHistoryForDisplay = new ArrayList<>();
+        LlmToolCallDto llmResponse = null;
 
-            String llmText = llmResponse.getTextResponse();
-            if (llmText == null || llmText.trim().isEmpty()) {
-                // If LLM calls a tool, it might not have a separate text_response.
-                // If it doesn't call a tool, and text_response is empty, then it's truly an empty response.
-                if (llmResponse.getToolToUse() != null && !llmResponse.getToolToUse().trim().isEmpty()) {
-                    llmText = "LLM is attempting to use tool: " + llmResponse.getToolToUse() + ". See tool output below.";
-                } else {
-                    llmText = "LLM did not provide a direct text response.";
-                }
+        String openAiModelName = largeModelService.getModelName();
+        if (openAiModelName == null || openAiModelName.trim().isEmpty()) {
+            logger.error("OpenAI Model Name is not configured in LargeModelService.");
+            model.addAttribute("llmTextResponse", "Error: Application configuration issue (model name missing).");
+            model.addAttribute("conversationHistory", conversationHistoryForDisplay);
+            addDefaultModelAttributes(model);
+            return "index";
+        }
+
+        for (int i = 0; i < MAX_LLM_ITERATIONS; i++) {
+            logger.info("LLM Iteration {}/{}...", i + 1, MAX_LLM_ITERATIONS);
+            OpenAiChatRequest chatRequest;
+            List<OpenAiChatMessage> messages = new ArrayList<>();
+
+            if (i == 0) {
+                String systemMessage = largeModelService.buildSystemMessageWithTools();
+                messages.add(new OpenAiChatMessage("system", systemMessage));
+                messages.add(new OpenAiChatMessage("user", originalUserInput));
+                chatRequest = new OpenAiChatRequest(openAiModelName, messages);
+                llmResponse = largeModelService.processOpenAiRequest(chatRequest);
+            } else {
+                String systemMessage = largeModelService.buildFollowUpSystemMessage(
+                    originalUserInput,
+                    (String) model.getAttribute("lastExecutedToolName"),
+                    (Map<String, String>) model.getAttribute("lastExecutedToolParams"),
+                    (String) model.getAttribute("lastToolOutput")
+                );
+                messages.add(new OpenAiChatMessage("system", systemMessage));
+                messages.add(new OpenAiChatMessage("user", "Based on the previous command\\'s output, what is the next step or the final answer?"));
+                chatRequest = new OpenAiChatRequest(openAiModelName, messages);
+                llmResponse = largeModelService.processOpenAiRequest(chatRequest);
             }
-            model.addAttribute("llmTextResponse", llmText);
+
+            if (llmResponse.getTextResponse() != null && !llmResponse.getTextResponse().isEmpty()) {
+                String llmText = llmResponse.getTextResponse();
+                conversationHistoryForDisplay.add("LLM: " + llmText);
+                model.addAttribute("llmTextResponse", llmText);
+            }
 
             if (llmResponse.getToolToUse() != null && !llmResponse.getToolToUse().trim().isEmpty()) {
                 String toolName = llmResponse.getToolToUse();
-                model.addAttribute("mcpCommandName", "LLM decided to use tool: " + toolName);
-                logger.info("LLM requested to use tool: {} with parameters: {}", toolName, llmResponse.getParameters());
+                Map<String, String> toolParameters = llmResponse.getParameters();
+                conversationHistoryForDisplay.add("LLM wants to use tool: " + toolName + " with parameters: " + toolParameters);
 
-                String mcpOutput = mcpService.executeMcpCommand(toolName, llmResponse.getParameters());
+                if (!"cmd".equals(toolName) || !mcpService.getMcpServerConfigurations().containsKey(toolName)) {
+                    String errorMsg = "LLM attempted to use an invalid or unavailable tool: " + toolName + ". Aborting interaction.";
+                    logger.warn(errorMsg);
+                    conversationHistoryForDisplay.add(errorMsg);
+                    model.addAttribute("mcpCommandOutput", errorMsg);
+                    break;
+                }
+
+                String mcpOutput = mcpService.executeMcpCommand(toolName, toolParameters);
+                conversationHistoryForDisplay.add("Tool '" + toolName + "' output:\n" + mcpOutput);
                 model.addAttribute("mcpCommandOutput", mcpOutput);
-                logger.info("MCP command '{}' output: {}", toolName, mcpOutput);
 
+                model.addAttribute("lastExecutedToolName", toolName);
+                model.addAttribute("lastExecutedToolParams", toolParameters);
+                model.addAttribute("lastToolOutput", mcpOutput);
+
+                if (i == MAX_LLM_ITERATIONS - 1) {
+                    conversationHistoryForDisplay.add("Max iterations reached. Ending conversation.");
+                }
             } else {
-                logger.info("LLM did not request a tool. Displaying its text response.");
-                model.addAttribute("mcpCommandName", "No MCP command executed by LLM.");
+                logger.info("LLM provided a final response or no tool was called. Ending interaction loop.");
+                break;
             }
-
-        } catch (Exception e) {
-            logger.error("Error during command execution orchestration: {}", e.getMessage(), e);
-            model.addAttribute("llmTextResponse", "An error occurred: " + e.getMessage());
-            model.addAttribute("mcpCommandOutput", "Execution failed due to controller error.");
         }
-        
-        // Ensure availableMcpCommands is re-added on POST if not using redirect-after-post
-        // This is necessary because we are returning "index" view directly.
+
+        model.addAttribute("conversationHistory", conversationHistoryForDisplay);
+        addDefaultModelAttributes(model);
+        return "index";
+    }
+
+    private void addDefaultModelAttributes(Model model) {
+        if (!model.containsAttribute("userInput")) {
+            model.addAttribute("userInput", "");
+        }
         Map<String, McpServerDetailsDto> mcpConfigs = mcpService.getMcpServerConfigurations();
         if (mcpConfigs != null) {
-            List<McpCommandView> availableCommands = mcpConfigs.entrySet().stream()
-                .map(entry -> new McpCommandView(entry.getKey(), entry.getValue().getDescription()))
+            List<McpController.McpCommandView> availableCommands = mcpConfigs.entrySet().stream()
+                .map(entry -> new McpController.McpCommandView(entry.getKey(), entry.getValue().getDescription()))
                 .collect(Collectors.toList());
             model.addAttribute("availableMcpCommands", availableCommands);
         } else {
-            model.addAttribute("availableMcpCommands", new ArrayList<McpCommandView>());
+            model.addAttribute("availableMcpCommands", new ArrayList<McpController.McpCommandView>());
         }
-
-        return "index"; 
+        if (!model.containsAttribute("llmTextResponse")) {
+             model.addAttribute("llmTextResponse", "Awaiting your command...");
+        }
+        if (!model.containsAttribute("mcpCommandOutput")) {
+            model.addAttribute("mcpCommandOutput", "");
+        }
     }
 }
