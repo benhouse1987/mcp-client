@@ -1,5 +1,8 @@
 package com.example.mcpclient.controller;
 
+import com.example.mcpclient.dto.openai.OpenAiChatRequest;
+import com.example.mcpclient.dto.openai.OpenAiChatMessage;
+
 import com.example.mcpclient.dto.llm.LlmToolCallDto;
 import com.example.mcpclient.dto.mcp.McpServerDetailsDto; // Import this
 import com.example.mcpclient.service.LargeModelService;
