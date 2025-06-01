@@ -161,9 +161,7 @@ public class LargeModelService {
         sb.append("{\"tool_to_use\": \"<tool_name>\", \"parameters\": {\"<param_name_1>\": \"<param_value_1>\", \"<param_name_2>\": \"<param_value_2>\", ...}, \"text_response\": \"<optional_text_for_user_summarizing_action_or_result>\"}. ");
         sb.append("The \"parameters\" object should only contain parameters relevant to the chosen tool. ");
         sb.append("If you do not need to use a tool, or if no tool is suitable for the user's request, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. ");
-        sb.append("Ensure your entire response is a single, valid JSON object and nothing else. Do not add any text before or after the JSON object.
-
-");
+        sb.append("Ensure your entire response is a single, valid JSON object and nothing else. Do not add any text before or after the JSON object. ");
         sb.append("Available tools:\n");
 
         tools.forEach((name, config) -> {
