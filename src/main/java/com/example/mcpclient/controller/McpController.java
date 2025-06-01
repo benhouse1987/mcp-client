@@ -167,4 +167,24 @@ public class McpController {
         return "index";
     }
 
+    private void addDefaultModelAttributes(Model model) {
+        if (!model.containsAttribute("userInput")) {
+            model.addAttribute("userInput", "");
+        }
+        Map<String, McpServerDetailsDto> mcpConfigs = mcpService.getMcpServerConfigurations();
+        if (mcpConfigs != null) {
+            List<McpController.McpCommandView> availableCommands = mcpConfigs.entrySet().stream()
+                .map(entry -> new McpController.McpCommandView(entry.getKey(), entry.getValue().getDescription()))
+                .collect(Collectors.toList());
+            model.addAttribute("availableMcpCommands", availableCommands);
+        } else {
+            model.addAttribute("availableMcpCommands", new ArrayList<McpController.McpCommandView>());
+        }
+        if (!model.containsAttribute("llmTextResponse")) {
+             model.addAttribute("llmTextResponse", "Awaiting your command...");
+        }
+        if (!model.containsAttribute("mcpCommandOutput")) {
+            model.addAttribute("mcpCommandOutput", "");
+        }
+    }
 }
