@@ -1,18 +1,13 @@
 {
   "mcpServers": {
-
-    "filesystem": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--mount", "type=bind,src=/Users/username/Desktop,dst=/projects/Desktop",
-        "--mount", "type=bind,src=/path/to/other/allowed/dir,dst=/projects/other/allowed/dir,ro",
-        "--mount", "type=bind,src=/path/to/file.txt,dst=/projects/path/to/file.txt",
-        "mcp/filesystem",
-        "/projects"
-      ]
+    "cmd": {
+      "command": "cmd.exe",
+      "args_template": [
+        "/c",
+        "{user_command}"
+      ],
+      "description": "Executes a Windows command. Provide the full command string as the 'user_command' parameter. For example, to list directory contents, set 'user_command' to 'dir C:\\'.",
+      "working_directory": "C:\\aidir"
     }
   }
 }
