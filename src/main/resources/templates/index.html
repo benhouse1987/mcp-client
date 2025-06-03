@@ -28,10 +28,14 @@
             <div>
                 <label for="command">Enter Command / Ask a Question:</label>
                 <input type="text" id="command" name="command" th:value="${userInput}" required autofocus />
+                <input type="hidden" name="taskId" th:value="${taskId}" />
             </div>
             <br/>
             <div>
                 <button type="submit">Execute</button>
+                <a th:href="@{/new_task}" style="text-decoration: none; margin-left: 10px;">
+                    <button type="button">New Task</button>
+                </a>
             </div>
         </form>
 
