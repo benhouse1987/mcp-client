@@ -1,0 +1,43 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1
+      author: mcp-client-dev (jules)
+      changes:
+        - createTable:
+            tableName: chat_message
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: task_id
+                  type: VARCHAR(36) # Standard UUID length
+                  constraints:
+                    nullable: false
+              - column:
+                  name: user_input
+                  type: TEXT # Suitable for long strings
+              - column:
+                  name: llm_response
+                  type: TEXT # Suitable for long strings
+              - column:
+                  name: mcp_command
+                  type: VARCHAR(2048) # Increased length for command + params
+              - column:
+                  name: mcp_command_output
+                  type: TEXT # Suitable for long strings
+              - column:
+                  name: timestamp
+                  type: TIMESTAMP WITHOUT TIME ZONE # Or DATETIME depending on MySQL version/preference. TIMESTAMP is generally good.
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: chat_message
+            indexName: idx_chat_message_task_id
+            columns:
+              - column:
+                  name: task_id
