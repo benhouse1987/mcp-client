@@ -32,7 +32,7 @@ databaseChangeLog:
                   type: TEXT # Suitable for long strings
               - column:
                   name: timestamp
-                  type: TIMESTAMP WITHOUT TIME ZONE # Or DATETIME depending on MySQL version/preference. TIMESTAMP is generally good.
+                  type: DATETIME
                   constraints:
                     nullable: false
         - createIndex:
