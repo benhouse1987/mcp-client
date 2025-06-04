@@ -11,11 +11,14 @@ import org.springframework.core.io.ClassPathResource; // To load from classpath
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.util.Collections; // Added for Java 8 compatibility
+import java.io.InputStream;
+import java.nio.charset.Charset;
+// import java.io.InputStreamReader; // No longer needed
+// import java.io.BufferedReader; // No longer needed
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -107,40 +110,51 @@ public class McpService {
             
             Process process = processBuilder.start();
 
-            // Capture output
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append(System.lineSeparator());
-                }
-            }
+            String outputString;
+            String errorString;
 
-            // Capture error
-            StringBuilder errorOutput = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    errorOutput.append(line).append(System.lineSeparator());
-                }
+            try (InputStream stdOut = process.getInputStream();
+                 InputStream stdErr = process.getErrorStream()) {
+                outputString = readStreamToString(stdOut, StandardCharsets.UTF_8);
+                errorString = readStreamToString(stdErr, StandardCharsets.UTF_8);
             }
 
             boolean exited = process.waitFor(30, TimeUnit.SECONDS); // Timeout for process
             if (!exited) {
                 process.destroyForcibly();
                 logger.error("MCP command '{}' timed out.", serverName);
-                return "Error: Command '" + serverName + "' timed out." + formatOutput(output, errorOutput);
+                // Attempt to read any remaining output after timeout/destroy
+                // This might be problematic if streams are closed by destroyForcibly immediately
+                // For simplicity, we use what was read before timeout check or assume it's captured by the initial read.
+                // If process.getInputStream() is used again here, it might throw an IOException if closed.
+                // String finalOutput = readStreamToString(process.getInputStream(), StandardCharsets.UTF_8); // Potentially problematic
+                // String finalError = readStreamToString(process.getErrorStream(), StandardCharsets.UTF_8); // Potentially problematic
+                // outputString = outputString.isEmpty() ? finalOutput : outputString; // Append if new data
+                // errorString = errorString.isEmpty() ? finalError : errorString; // Append if new data
+
+
+                String timeoutMessage = "Error: Command '" + serverName + "' timed out.";
+                if (outputString != null && !outputString.isEmpty()) {
+                    timeoutMessage += "\nOutput:\n" + outputString.trim();
+                }
+                if (errorString != null && !errorString.isEmpty()) {
+                    timeoutMessage += "\nError Stream:\n" + errorString.trim();
+                }
+                return timeoutMessage;
             }
 
             int exitCode = process.exitValue();
             logger.info("MCP command '{}' finished with exit code: {}.", serverName, exitCode);
 
             if (exitCode == 0) {
-                return "Output from '" + serverName + "':\n" + output.toString().trim();
+                return "Output from '" + serverName + "':\n" + (outputString != null ? outputString.trim() : "");
             } else {
-                return "Error executing '" + serverName + "' (exit code " + exitCode + "):\n" 
-                       + output.toString().trim() 
-                       + (errorOutput.length() > 0 ? "\nError Stream:\n" + errorOutput.toString().trim() : "");
+                String result = "Error executing '" + serverName + "' (exit code " + exitCode + "):\n"
+                               + (outputString != null ? outputString.trim() : "");
+                if (errorString != null && !errorString.isEmpty()) {
+                    result += "\nError Stream:\n" + errorString.trim();
+                }
+                return result;
             }
 
         } catch (IOException | InterruptedException e) {
@@ -158,16 +172,16 @@ public class McpService {
         }
         return finalArg;
     }
-    
-    private String formatOutput(StringBuilder output, StringBuilder errorOutput) {
-        String result = "";
-        if (output.length() > 0) {
-            result += "\nOutput:\n" + output.toString().trim();
+
+    private String readStreamToString(InputStream inputStream, Charset charset) throws IOException {
+        try (ByteArrayOutputStream result = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = inputStream.read(buffer)) != -1) {
+                result.write(buffer, 0, length);
+            }
+            return result.toString(charset.name());
         }
-        if (errorOutput.length() > 0) {
-            result += "\nError Stream:\n" + errorOutput.toString().trim();
-        }
-        return result;
     }
 
     // Old sendCommand method and @Value mcpServerAddress are removed by overwriting.
