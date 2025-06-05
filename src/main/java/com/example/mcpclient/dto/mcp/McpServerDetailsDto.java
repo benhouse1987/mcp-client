@@ -12,6 +12,7 @@ public class McpServerDetailsDto {
     private List<String> args; // For fixed arguments
     @JsonProperty("args_template") // Map JSON's "args_template" to this field
     private List<String> argsTemplate; // For templated arguments
+    @JsonProperty("working_directory")
     private String workingDirectory;
 
     // Default constructor for Jackson
