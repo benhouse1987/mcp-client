@@ -17,8 +17,6 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.SessionAttributes;
-import javax.servlet.http.HttpSession;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.ArrayList;
@@ -28,7 +26,6 @@ import java.util.stream.Collectors;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 
 @Controller
-@SessionAttributes("taskId")
 public class McpController {
 
     private static final Logger logger = LoggerFactory.getLogger(McpController.class);
@@ -57,12 +54,10 @@ public class McpController {
     }
 
     @GetMapping("/")
-    public String index(Model model, HttpSession session) {
-        String taskId = (String) session.getAttribute("taskId");
-        if (taskId == null) {
+    public String index(Model model, @RequestParam(required = false) String taskId) {
+        if (taskId == null || taskId.isEmpty()) {
             taskId = UUID.randomUUID().toString();
-            session.setAttribute("taskId", taskId);
-            logger.info("New session, generated taskId: {}", taskId);
+            logger.info("New session or missing taskId, generated taskId: {}", taskId);
         }
         model.addAttribute("taskId", taskId);
 
@@ -98,13 +93,9 @@ public class McpController {
     private static final int MAX_LLM_ITERATIONS = 5; // Prevent infinite loops
 
     @PostMapping("/execute")
-    public String executeCommand(@RequestParam("command") String originalUserInput, Model model, HttpSession session) {
-        String taskId = (String) session.getAttribute("taskId");
-        if (taskId == null) {
-            taskId = UUID.randomUUID().toString();
-            session.setAttribute("taskId", taskId);
-            logger.warn("taskId not found in session during executeCommand, generated new one: {}. This should ideally be set by index().", taskId);
-        }
+    public String executeCommand(@RequestParam("command") String originalUserInput,
+                                 @RequestParam("taskId") String taskId,
+                                 Model model) {
         model.addAttribute("taskId", taskId); // Ensure taskId is in the model for this request
         logger.info("Task ID {} - Received original user input: {}", taskId, originalUserInput);
         model.addAttribute("userInput", originalUserInput);
@@ -322,11 +313,10 @@ public class McpController {
     }
 
     @GetMapping("/new_task")
-    public String newTask(HttpSession session) {
+    public String newTask() {
         String newTaskId = UUID.randomUUID().toString();
-        session.setAttribute("taskId", newTaskId);
         logger.info("New task started by user. New taskId: {}", newTaskId);
-        return "redirect:/";
+        return "redirect:/?taskId=" + newTaskId;
     }
 
     // Helper methods to extract tool name and arguments from the stored command string
