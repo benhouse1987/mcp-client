@@ -84,33 +84,8 @@ public class McpService {
         }
 
         List<String> commandAndArgs = new java.util.ArrayList<>();
-        boolean isWindowsCmdUnicode = false;
-
-        // Check if this is the specific cmd.exe configuration that needs /U
-        if ("cmd.exe".equals(config.getCommand()) &&
-            "mcp_servers.json".equals(this.mcpConfigPath) && // This condition is kept from original logic
-            finalArgs.size() == 2 && "/c".equals(finalArgs.get(0))) {
-
-            String userCommandWithPotentialChcp = finalArgs.get(1);
-            String actualUserCommand = userCommandWithPotentialChcp;
-
-            // Remove "chcp 65001 && " if present from previous logic
-            String chcpPrefix = "chcp 65001 && ";
-            if (userCommandWithPotentialChcp.startsWith(chcpPrefix)) {
-                actualUserCommand = userCommandWithPotentialChcp.substring(chcpPrefix.length());
-            }
-
-            commandAndArgs.add(config.getCommand()); // "cmd.exe"
-            commandAndArgs.add("/U"); // Add /U for Unicode output
-            commandAndArgs.add("/c");
-            commandAndArgs.add(actualUserCommand); // Add the actual user command
-            isWindowsCmdUnicode = true;
-            logger.info("Using /U /c for cmd.exe for Unicode output. Actual user command: {}", actualUserCommand);
-        } else {
-            // Original logic for other commands or if not the generic cmd.exe runner
-            commandAndArgs.add(config.getCommand());
-            commandAndArgs.addAll(finalArgs);
-        }
+        commandAndArgs.add(config.getCommand());
+        commandAndArgs.addAll(finalArgs);
 
         logger.info("Executing MCP command '{}': {}", serverName, String.join(" ", commandAndArgs));
 
@@ -133,15 +108,7 @@ public class McpService {
 
             try (InputStream stdOut = process.getInputStream();
                  InputStream stdErr = process.getErrorStream()) {
-                if (isWindowsCmdUnicode) {
-                    outputString = readStreamToString(stdOut, StandardCharsets.UTF_16LE);
-                    logger.debug("Reading stdout as UTF-16LE for /U cmd.exe command.");
-                } else {
-                    outputString = readStreamToString(stdOut, StandardCharsets.UTF_8); // Default for other commands
-                }
-                // Error stream: cmd.exe /U might not affect stderr encoding in the same way.
-                // Sticking to UTF-8 for errors is often safer, but if errors are garbled for /U,
-                // this might need to be UTF-16LE as well.
+                outputString = readStreamToString(stdOut, StandardCharsets.UTF_8);
                 errorString = readStreamToString(stdErr, StandardCharsets.UTF_8);
             }
 
