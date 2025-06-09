@@ -146,6 +146,14 @@ public class LargeModelService {
     }
 
     // ENSURED buildSystemMessageWithTools IS PRESENT AND HAS MULTI-STEP GUIDANCE
+    /**
+     * Builds the initial system message for the LLM.
+     * This message instructs the LLM on how to structure its responses (JSON for tool calls or text responses),
+     * lists available tools, and provides guidelines for multi-step tasks.
+     * It emphasizes iterative operation: the LLM should continue calling tools (especially 'cmd')
+     * sequentially until the user's entire request is resolved.
+     * It also includes specific instructions for file operations (e.g., get full content, then overwrite).
+     */
     public String buildSystemMessageWithTools() {
         Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
         if (tools == null || tools.isEmpty()) {
@@ -159,13 +167,19 @@ public class LargeModelService {
         sb.append("The \"parameters\" object should only contain parameters relevant to the chosen tool. ");
         sb.append("If you do not need to use a tool, or if no tool is suitable for the user's request, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. ");
         sb.append("Ensure your entire response is a single, valid JSON object and nothing else. Do not add any text before or after the JSON object. ");
-        sb.append("If the task requires multiple steps or commands, call the 'cmd' tool for the first command. You will receive its output and can then decide on subsequent actions or provide a final answer. \\n"); // Multi-step guidance
+        sb.append("For tasks requiring multiple steps or system commands, you will operate iteratively. First, call the 'cmd' tool for the initial command. You will then receive its output. Based on this output, you must decide whether further commands are necessary to complete the user's entire request, or if you can now provide a final comprehensive answer. Continue requesting 'cmd' tool calls sequentially until all necessary operations for the user's task are done. \\n"); // Multi-step guidance
         sb.append("如果需要修改，创建文件，直接使用系统命令操作，不要打开任何软件让我自己粘贴。如果需要修改文件，先获取目标文件全文，然后生成调整后的最终内容，最后覆盖式写入目标文件 \\n"); // Multi-step guidance
         sb.append("Available tools:\\n");
 
         tools.forEach((name, config) -> {
             sb.append("- Tool Name: `").append(name).append("`\\n");
-            sb.append("  Description: ").append(config.getDescription()).append("\\n");
+            sb.append("  Description: ").append(config.getDescription());
+            if (name.equals("cmd") && config.getWorkingDirectory() != null && !config.getWorkingDirectory().isEmpty()) {
+                sb.append(" Note: This command will be executed in the working directory: '")
+                  .append(config.getWorkingDirectory())
+                  .append("'. Use absolute paths for other locations or relative paths based on this directory.");
+            }
+            sb.append("\\n");
             if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
                 String params = config.getArgsTemplate().stream()
                     .map(arg -> arg.replaceAll("[\\{\\}]", "")) // Corrected regex for { and }
@@ -181,6 +195,17 @@ public class LargeModelService {
     }
 
     // ENSURED buildFollowUpSystemMessage IS PRESENT AND CORRECT
+    /**
+     * Builds a follow-up system message after a tool has been executed.
+     * This prompt provides the LLM with the context of the original query, the command that was just executed,
+     * its parameters, and its output.
+     * It guides the LLM to:
+     * 1. Analyze the output: If the command failed, suggest a fix or an alternative.
+     * 2. Decide next step: If the task is ongoing, request another command (tool call).
+     * 3. Finalize: If the task is complete based on the output, provide a final text response.
+     * The message also reiterates the availability of tools and the JSON response format,
+     * as well as guidelines for file operations.
+     */
     public String buildFollowUpSystemMessage(String originalUserQuery, String executedCommandName, Map<String, String> executedCommandParams, String commandOutput) {
         Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
         StringBuilder sb = new StringBuilder();
@@ -204,7 +229,7 @@ public class LargeModelService {
             sb.append("Please analyze the error message and suggest how to fix the command, or propose an alternative command to achieve the user's original goal. ");
             sb.append("You can then request a corrected 'cmd' tool call with the fixed command (using 'user_command' parameter), or if you have a different suggestion, provide it as a textual response using the 'text_response' field only.\\n");
         } else {
-            sb.append("Based on this output and the original query, you can either request another command using the 'cmd' tool or provide a final answer to the user.\\n");
+            sb.append("Based on this output and the original query, evaluate if further commands are needed to complete the overall task. If so, request another command using the 'cmd' tool. If the task is now fully addressed, or if you can provide a complete answer, respond ONLY with a final answer in the 'text_response' field.\\n");
         }
         sb.append("If you need to use the 'cmd' tool again, respond ONLY with a single JSON object matching this exact structure: \\n");
         sb.append("{\"tool_to_use\": \"cmd\", \"parameters\": {\"user_command\": \"<full_windows_command>\"}, \"text_response\": \"<optional_summary>\"}. \\n");
@@ -218,7 +243,13 @@ public class LargeModelService {
             sb.append("Available tools (primarily 'cmd'):\\n");
             tools.forEach((name, config) -> {
                 sb.append("- Tool Name: `").append(name).append("`\\n");
-                sb.append("  Description: ").append(config.getDescription()).append("\\n");
+                sb.append("  Description: ").append(config.getDescription());
+                if (name.equals("cmd") && config.getWorkingDirectory() != null && !config.getWorkingDirectory().isEmpty()) {
+                    sb.append(" Note: This command will be executed in the working directory: '")
+                      .append(config.getWorkingDirectory())
+                      .append("'. Use absolute paths for other locations or relative paths based on this directory.");
+                }
+                sb.append("\\n");
                 if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
                     String params = config.getArgsTemplate().stream()
                         .map(arg -> arg.replaceAll("[\\{\\}]", "")) // Corrected regex

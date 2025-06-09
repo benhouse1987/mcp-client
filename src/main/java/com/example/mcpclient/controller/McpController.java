@@ -126,6 +126,9 @@ public class McpController {
             return "index";
         }
 
+        // This loop enables iterative interaction with the LLM.
+        // It's capped by MAX_LLM_ITERATIONS to prevent endless cycles.
+        // In each iteration, the LLM might call a tool or provide a text response.
         for (int i = 0; i < MAX_LLM_ITERATIONS; i++) {
             logger.info("Task ID {} - LLM Iteration {}/{}...", taskId, i + 1, MAX_LLM_ITERATIONS);
             List<OpenAiChatMessage> messages = new ArrayList<>();
@@ -218,7 +221,7 @@ public class McpController {
                 }
             }
 
-
+            // Send the accumulated context (system message, history, current user input/tool output) to the LLM.
             OpenAiChatRequest chatRequest = new OpenAiChatRequest(openAiModelName, messages);
             llmResponse = largeModelService.processOpenAiRequest(chatRequest);
 
@@ -293,6 +296,8 @@ public class McpController {
                 taskHistory.add(mcpOutputMessage);
                 logger.info("Task ID {} - Saved MCP command output to DB. History size: {}", taskId, taskHistory.size());
 
+                // These attributes are used in the next iteration to build the follow-up system message,
+                // providing context to the LLM about the last action taken.
                 model.addAttribute("lastExecutedToolName", toolName);
                 model.addAttribute("lastExecutedToolParams", toolParameters);
                 model.addAttribute("lastToolOutput", mcpOutput);
@@ -301,6 +306,8 @@ public class McpController {
                     conversationHistoryForDisplay.add("Max iterations reached. Ending conversation.");
                 }
             } else {
+                // If the LLM responds with text and no tool call, it means the task is considered complete
+                // or the LLM is providing a direct answer. The loop breaks.
                 logger.info("LLM provided a final response or no tool was called. Ending interaction loop.");
                 model.addAttribute("conversationHistory", conversationHistoryForDisplay);
                 break;
