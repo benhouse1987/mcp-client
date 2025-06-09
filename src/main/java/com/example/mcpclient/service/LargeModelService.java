@@ -269,8 +269,7 @@ public class LargeModelService {
             sb.append("\n可用工具列表（主要使用 'cmd'）：\n");
             tools.forEach((name, config) -> {
                 sb.append("工具名称: `").append(name).append("`\n");
-                // Tool description will be updated in Plan Step 3.
-                sb.append("  描述: ").append(config.getDescription()); // Existing description
+                sb.append("  描述: ").append(config.getDescription());
                  if (name.equals("cmd") && config.getWorkingDirectory() != null && !config.getWorkingDirectory().isEmpty()) {
                     sb.append(" (注意: 此命令将在工作目录 '")
                       .append(config.getWorkingDirectory())
@@ -279,7 +278,7 @@ public class LargeModelService {
                 sb.append("\n");
                 if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
                     String params = config.getArgsTemplate().stream()
-                        .map(arg -> arg.replaceAll("[\{\}]", ""))
+                        .map(arg -> arg.replaceAll("[\\{\\}]", ""))
                         .filter(arg -> !arg.contains(" ") && !arg.isEmpty())
                         .collect(Collectors.joining(", "));
                     if (!params.isEmpty()) {
