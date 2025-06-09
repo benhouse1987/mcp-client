@@ -85,7 +85,7 @@ public class LargeModelService {
         try {
             String requestBody = objectMapper.writeValueAsString(chatRequest);
             HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-            logger.debug("OpenAI Request Body: {}", requestBody);
+            logger.info("OpenAI Request Body: {}", requestBody);
 
             ResponseEntity<OpenAiChatResponse> responseEntity = restTemplate.postForEntity(
                     modelUrl, entity, OpenAiChatResponse.class);
@@ -94,7 +94,6 @@ public class LargeModelService {
 
             if (chatResponse != null && chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
                 String llmResponseContent = chatResponse.getChoices().get(0).getMessage().getContent();
-                logger.info("Raw response from LLM (before stripping): {}", llmResponseContent);
                 // Strip markdown fences if present
                 if (llmResponseContent != null && llmResponseContent.startsWith("```json")) {
                     llmResponseContent = llmResponseContent.substring(7);
@@ -105,7 +104,7 @@ public class LargeModelService {
                 if (llmResponseContent != null) {
                     llmResponseContent = llmResponseContent.trim();
                 }
-                logger.info("Raw response from LLM (after stripping): {}", llmResponseContent);
+                logger.info("OpenAI Request Raw response from LLM (after stripping): {}", llmResponseContent);
 
                 try {
                     LlmToolCallDto toolCall = objectMapper.readValue(llmResponseContent, LlmToolCallDto.class);
@@ -161,6 +160,7 @@ public class LargeModelService {
         sb.append("If you do not need to use a tool, or if no tool is suitable for the user's request, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. ");
         sb.append("Ensure your entire response is a single, valid JSON object and nothing else. Do not add any text before or after the JSON object. ");
         sb.append("If the task requires multiple steps or commands, call the 'cmd' tool for the first command. You will receive its output and can then decide on subsequent actions or provide a final answer. \\n"); // Multi-step guidance
+        sb.append("如果需要修改，创建文件，直接使用系统命令操作，不要打开任何软件让我自己粘贴。如果需要修改文件，先获取目标文件全文，然后生成调整后的最终内容，最后覆盖式写入目标文件 \\n"); // Multi-step guidance
         sb.append("Available tools:\\n");
 
         tools.forEach((name, config) -> {
@@ -210,6 +210,7 @@ public class LargeModelService {
         sb.append("{\"tool_to_use\": \"cmd\", \"parameters\": {\"user_command\": \"<full_windows_command>\"}, \"text_response\": \"<optional_summary>\"}. \\n");
         sb.append("If you want to provide a final answer, respond ONLY with a single JSON object: {\"text_response\": \"<your_direct_answer_to_the_user>\"}. \\n");
         sb.append("Ensure your entire response is a single, valid JSON object and nothing else.\\n");
+        sb.append("自动完成所有需要做的任务，如果需要修改，创建文件，直接使用系统命令操作，不要打开任何软件让我自己粘贴。如果需要修改文件，先获取目标文件全文，然后生成调整后的最终内容，最后覆盖式写入目标文件 \\n"); // Multi-step guidance
 
         if (tools == null || tools.isEmpty()) {
             sb.append("No tools are currently available.\\n");
