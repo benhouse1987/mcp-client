@@ -30,7 +30,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 public class McpController {
 
     private static final Logger logger = LoggerFactory.getLogger(McpController.class);
-    public static final int MAX_MCP_OUTPUT_BYTES = 65530; // Made public for test access
+    public static final int MAX_MCP_OUTPUT_BYTES = 2000; // Made public for test access
 
     private final McpService mcpService;
     private final LargeModelService largeModelService;
