@@ -133,18 +133,29 @@ public class McpController {
             logger.info("Task ID {} - LLM Iteration {}/{}...", taskId, i + 1, MAX_LLM_ITERATIONS);
             List<OpenAiChatMessage> messages = new ArrayList<>();
 
-            // Add System Message
-            String systemMessageText;
-            if (i == 0) {
-                systemMessageText = largeModelService.buildSystemMessageWithTools();
-            } else {
-                systemMessageText = largeModelService.buildFollowUpSystemMessage(
-                    originalUserInput,
-                    (String) model.getAttribute("lastExecutedToolName"),
-                    (Map<String, String>) model.getAttribute("lastExecutedToolParams"),
-                    (String) model.getAttribute("lastToolOutput")
-                );
+            // Prepare a formatted list of executed commands and their results for the system prompt.
+            // This provides the LLM with a comprehensive history of actions taken so far in the current task.
+            // This list will be empty for the first iteration (i=0) if taskHistory only contains the initial user message,
+            // or if no commands have been executed yet.
+            List<String> formattedCommandHistoryItems = new ArrayList<>();
+            // Iterate through the taskHistory (which includes the latest user input and any prior interactions)
+            // to build the command execution history.
+            // The taskHistory is updated after each LLM response or tool execution within this loop.
+            for (ChatMessage historicalMessage : taskHistory) {
+                if (historicalMessage.getMcpCommand() != null && !historicalMessage.getMcpCommand().isEmpty()) {
+                    String commandDetail = historicalMessage.getMcpCommand();
+                    String outputDetail = (historicalMessage.getMcpCommandOutput() != null && !historicalMessage.getMcpCommandOutput().isEmpty())
+                                          ? historicalMessage.getMcpCommandOutput()
+                                          : "(无输出或输出未记录)";
+                    // Format each command execution and its output as a single string entry.
+                    String historyEntry = String.format("先前执行的命令: %s\n命令结果:\n%s", commandDetail, outputDetail);
+                    formattedCommandHistoryItems.add(historyEntry);
+                }
             }
+
+            // Always use the unified system message, providing the original user input and the full command execution history.
+            // This consistent prompt structure is used for both initial and subsequent LLM interactions.
+            String systemMessageText = largeModelService.buildUnifiedSystemMessage(originalUserInput, formattedCommandHistoryItems);
             messages.add(new OpenAiChatMessage("system", systemMessageText));
 
             // Populate with Historical Messages from DB

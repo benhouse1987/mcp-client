@@ -68,7 +68,8 @@ public class LargeModelService {
     // ENSURED processText IS CORRECT AND CALLS processOpenAiRequest
     public LlmToolCallDto processText(String inputText) {
         logger.info("Processing input with LLM ({}) for initial call: '{}'", modelName, inputText);
-        String systemMessageContent = buildSystemMessageWithTools(); // Call the correctly named method
+        // For the initial call, the command history is empty.
+        String systemMessageContent = buildUnifiedSystemMessage(inputText, Collections.emptyList());
         List<OpenAiChatMessage> messages = new ArrayList<>();
         messages.add(new OpenAiChatMessage("system", systemMessageContent));
         messages.add(new OpenAiChatMessage("user", inputText));
@@ -145,25 +146,31 @@ public class LargeModelService {
         }
     }
 
-    /**
-     * 构建给LLM的初始系统消息。
-     * 此消息主要使用中文，指导LLM如何构建其响应（工具调用或文本响应的JSON格式），
-     * 列出可用工具，并提供多步骤任务的处理指南。
-     * 强调迭代操作：LLM应持续（通过'cmd'工具）调用命令，直到用户的完整请求得到解决。
-     * 同时包含文件操作（例如，先获取全部内容，然后覆盖写入）的具体说明。
-     * 新增指导原则：LLM被指示要自主行动，不向用户提问，并尝试使用命令解决信息缺失的问题。
-     */
-    public String buildSystemMessageWithTools() {
-        Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
-        if (tools == null || tools.isEmpty()) {
-            return "你是一个有帮助的助手。请直接用中文回答用户的问题。";
-        }
+    // Placeholder for the List<String> formattedCommandHistory structure:
+    // Each string is assumed to be a pre-formatted log like:
+    // "先前执行的命令: cmd with params: {user_command=...}
+命令结果:
+<output>"
 
+    /**
+     * 构建统一的、给LLM的系统消息。此消息将用于所有与LLM的交互轮次。
+     * 此消息主要使用中文，并始终包含：
+     * 1. 核心AI行动指南（自主决策、不提问、主动信息获取、JSON响应格式、文件操作规则等）。
+     * 2. 用户的原始请求。
+     * 3. 到目前为止已执行的命令及其结果的列表（首次交互时此列表为空）。
+     * 4. 直接指令：要求LLM基于以上所有信息，提供下一个要执行的命令或最终总结。
+     * 5. 可用工具列表。
+     * LLM被期望根据这些信息自主决定下一步。
+     */
+    public String buildUnifiedSystemMessage(String originalUserQuery, List<String> formattedCommandHistory) {
+        Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
         StringBuilder sb = new StringBuilder();
+
+        // 1. Core AI Guidelines
         sb.append("你是一个有能力的AI助手。你的核心任务是理解用户的请求并自主完成所有相关工作。\n");
         sb.append("你拥有以下工具（本地MCP服务器命令）的使用权限。请严格遵守以下行动指南：\n\n");
 
-        sb.append("行动指南：\n");
+        sb.append("== 核心行动指南 ==\n");
         sb.append("1. 自主决策与执行：深入理解用户目标，独立判断并执行所有必要步骤。请勿向用户提出澄清性问题或寻求操作确认。你的目标是直接完成任务。\n");
         sb.append("2. 主动解决信息障碍：若执行任务所需信息不明确或缺失（例如，不确定的文件名、路径或参数），你必须首先尝试使用你拥有的工具（尤其是 'cmd' 命令）进行探查和信息获取。例如，使用 'cmd' 列出目录内容、读取文件内容等，以获取决策所需信息。\n");
         sb.append("3. 迭代式命令执行：对于复杂任务，通常需要多步骤的命令执行。你将按顺序迭代执行。首先，调用 'cmd' 工具执行第一个必要的系统命令。系统将返回该命令的输出。你需仔细分析此输出，并基于分析结果决定下一步行动：是执行更多'cmd'命令，还是任务已完成并可提供最终答复。如此循环，直至用户请求的所有操作均已完成。\n");
@@ -178,103 +185,41 @@ public class LargeModelService {
         sb.append("   b. 修改文件时，严谨的工作流程是：首先，使用命令读取目标文件的当前全部内容；然后，基于读取的内容和你需要做的修改，在内部生成全新的、完整的最终文件内容；最后，使用命令将此最终内容覆盖式写入原文件。\n");
         sb.append("   c. 写入文件内容时，必须确保文本中的换行符被正确处理为实际的换行效果，而不是写入 '\\n' 这样的转义字符。\n\n");
 
-        sb.append("可用工具列表：\n");
-        tools.forEach((name, config) -> {
-            sb.append("工具名称: `").append(name).append("`\n");
-            // Tool description will be handled in a later step (Plan Step 3) to ensure it's also in Chinese.
-            // For now, we use the existing description but clearly label it.
-            sb.append("  描述: ").append(config.getDescription()); // Existing description
-            if (name.equals("cmd") && config.getWorkingDirectory() != null && !config.getWorkingDirectory().isEmpty()) {
-                sb.append(" (注意: 此命令将在工作目录 '")
-                  .append(config.getWorkingDirectory())
-                  .append("' 中执行。对其他位置请使用绝对路径，或基于此目录使用相对路径。)");
-            }
-            sb.append("\n");
-            if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
-                String params = config.getArgsTemplate().stream()
-                    .map(arg -> arg.replaceAll("[\\{\\}]", ""))
-                    .filter(arg -> !arg.contains(" ") && !arg.isEmpty())
-                    .collect(Collectors.joining(", "));
-                if (!params.isEmpty()) {
-                    sb.append("  需要提供的参数: `").append(params).append("`\n");
-                }
-            }
-            sb.append("\n");
-        });
-        return sb.toString();
-    }
 
-    /**
-     * 构建在工具执行后给LLM的后续系统消息。
-     * 此消息主要使用中文，为LLM提供原始用户查询、刚执行的命令及其参数和输出的上下文。
-     * 它指导LLM：
-     * 1. 分析输出：如果命令失败，研判错误信息，并自主决定是修正命令、尝试不同命令，还是判断任务无法完成。无需向用户征询。
-     * 2. 决定后续步骤：如果任务仍在进行中，应继续自主调用所需工具（通常是'cmd'）。
-     * 3. 任务完成：如果基于当前输出判断任务已完全解决，则提供最终的中文文本总结。
-     * 此消息重申了可用工具、JSON响应格式，以及文件操作和自主行动的指导方针。
-     * 强调LLM不应提问，而是应自行使用命令解决信息缺失问题。
-     */
-    public String buildFollowUpSystemMessage(String originalUserQuery, String executedCommandName, Map<String, String> executedCommandParams, String commandOutput) {
-        Map<String, McpServerDetailsDto> tools = getAvailableMcpTools();
-        StringBuilder sb = new StringBuilder();
+        // 2. Original User Request
+        sb.append("== 用户的原始请求 ==\n");
+        sb.append(originalUserQuery).append("\n\n");
 
-        sb.append("你是一个有能力的AI助手。你先前基于用户的原始请求执行了一个命令。现在你需要分析结果并决定下一步行动。\n");
-        sb.append("记住核心行动指南：自主决策，不提问，主动使用命令解决信息障碍。\n\n");
-
-        sb.append("上下文回顾：\n");
-        sb.append("  - 原始用户请求: '").append(originalUserQuery).append("'\n");
-        sb.append("  - 已执行的命令: '").append(executedCommandName).append("' 使用参数: ").append(executedCommandParams.toString()).append("'\n");
-        sb.append("  - 命令输出:\n").append(commandOutput).append("\n\n");
-
-        boolean commandFailed = false;
-        if (commandOutput != null &&
-            (commandOutput.startsWith("Error executing") || // Keeping English keywords for error detection from McpService
-             commandOutput.contains("(exit code ") ||
-             commandOutput.toLowerCase().contains("is not recognized as an internal or external command") ||
-             commandOutput.toLowerCase().contains("cannot find the path specified") ||
-             commandOutput.toLowerCase().contains("access is denied"))) {
-            commandFailed = true;
-            logger.info("Command execution detected as failed. Modifying LLM prompt for autonomous error handling.");
-        }
-
-        sb.append("下一步行动指示：\n");
-        if (commandFailed) {
-            sb.append("1. 分析失败：上述命令执行失败或产生了错误（详情见“命令输出”）。请仔细分析错误信息。\n");
-            sb.append("2. 自主修正：基于你的分析，你必须自主决定如何修正。选项包括：\n");
-            sb.append("   a. 修正当前命令：如果你认为可以修正参数或命令本身来解决问题，请使用 'cmd' 工具调用修正后的命令。\n");
-            sb.append("   b. 尝试替代命令：如果原命令无法修复，但有其他命令或方法能达成用户目标，请使用 'cmd' 工具调用新的命令。\n");
-            sb.append("   c. 无法解决：如果你判断该错误无法通过你拥有的工具和知识解决，或者用户目标无法达成，则提供一个说明情况的最终文本答复。\n");
-            sb.append("   请勿就如何修复或下一步操作询问用户。\n");
+        // 3. Executed Command History
+        sb.append("== 已执行的命令历史 ==\n");
+        if (formattedCommandHistory == null || formattedCommandHistory.isEmpty()) {
+            sb.append("尚未执行任何命令。\n");
         } else {
-            sb.append("1. 分析成功输出：上述命令已成功执行。请分析其输出。\n");
-            sb.append("2. 决定后续：基于命令输出和原始用户请求，自主判断任务是否已完全解决。\n");
-            sb.append("   a. 若需更多步骤：如果认为还需执行其他命令才能完整实现用户目标（例如，文件操作的后续步骤，或一个复杂任务的下一个环节），请继续使用 'cmd' 工具调用下一个必要的命令。若缺少信息，尝试用 'cmd' 命令获取。\n");
-            sb.append("   b. 若任务完成：如果命令输出表明用户请求已圆满完成，或者你已获取足够信息来总结成果，则提供一个最终的中文文本答复。\n");
-            sb.append("   请勿询问用户是否需要更多步骤或任务是否完成。\n");
+            for (String historyItem : formattedCommandHistory) {
+                // Indent multi-line history items (e.g., command outputs) for better readability in the prompt
+                sb.append("- ").append(historyItem.replace("\n", "\n  ")).append("\n");
+            }
         }
+        sb.append("\n");
 
-        sb.append("\n响应格式提醒：\n");
-        sb.append("- 若需使用'cmd'工具：你的回复必须是此JSON格式: {\"tool_to_use\": \"cmd\", \"parameters\": {\"user_command\": \"<完整系统命令>\"}, \"text_response\": \"<可选的中文总结>\"}\n");
-        sb.append("- 若提供最终答案：你的回复必须是此JSON格式: {\"text_response\": \"<给用户的最终中文总结性答复>\"}\n");
-        sb.append("- 确保回复是单一、结构正确的JSON对象，不含任何额外字符。\n");
+        // 4. Action Instruction
+        sb.append("== 行动指示 ==\n");
+        sb.append("基于以上核心行动指南、用户的原始请求以及已执行的命令历史（包括其成功或失败的结果）：\n");
+        sb.append("1. 如果还需要执行更多命令来完成用户的原始请求，请提供下一个确切的系统命令。\n");
+        sb.append("2. 如果用户的原始请求已完全达成，或者你判断无法通过命令进一步完成，请提供一个最终的中文总结性答复。\n");
+        sb.append("请直接行动，不要提出问题。\n\n");
 
-        sb.append("\n文件操作特别指南（重申）：\n");
-        sb.append("修改文件请遵循“先读、再改、后写”的原则，所有操作通过'cmd'命令完成，确保换行符正确处理。\n");
-        sb.append("自动完成所有需要做的任务，如果需要修改，创建文件，直接使用系统命令操作，不要打开任何软件让我自己粘贴。如果需要修改文件，先获取目标文件全文，然后生成调整后的最终内容，最后覆盖式写入目标文件。\n");
+        // 5. Response Format Reminder (briefly)
+        sb.append("请再次确认，你的回复必须严格按照上述JSON格式之一（使用工具或直接回答），且仅包含该JSON对象。\n\n");
 
-
+        // Available Tools
         if (tools == null || tools.isEmpty()) {
-            sb.append("\n当前无可用工具。\n");
+            sb.append("当前无可用工具（这是系统配置问题）。\n");
         } else {
-            sb.append("\n可用工具列表（主要使用 'cmd'）：\n");
+            sb.append("== 可用工具列表 ==\n");
             tools.forEach((name, config) -> {
                 sb.append("工具名称: `").append(name).append("`\n");
-                sb.append("  描述: ").append(config.getDescription());
-                 if (name.equals("cmd") && config.getWorkingDirectory() != null && !config.getWorkingDirectory().isEmpty()) {
-                    sb.append(" (注意: 此命令将在工作目录 '")
-                      .append(config.getWorkingDirectory())
-                      .append("' 中执行。对其他位置请使用绝对路径，或基于此目录使用相对路径。)");
-                }
+                sb.append("  描述: ").append(config.getDescription()); // Assumes description is already in Chinese from mcp_servers.json
                 sb.append("\n");
                 if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
                     String params = config.getArgsTemplate().stream()
