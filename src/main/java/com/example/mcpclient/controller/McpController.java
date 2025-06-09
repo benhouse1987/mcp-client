@@ -17,6 +17,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 public class McpController {
 
     private static final Logger logger = LoggerFactory.getLogger(McpController.class);
+    public static final int MAX_MCP_OUTPUT_BYTES = 65530; // Made public for test access
 
     private final McpService mcpService;
     private final LargeModelService largeModelService;
@@ -88,6 +90,104 @@ public class McpController {
         }
         
         return "index";
+    }
+
+    // Made public static for test access and utility nature
+    public static String truncateStringByBytes(String str, int maxBytes) {
+        if (str == null) {
+            return null;
+        }
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("maxBytes cannot be negative");
+        }
+        byte[] originalBytes = str.getBytes(StandardCharsets.UTF_8);
+
+        if (originalBytes.length <= maxBytes) {
+            return str;
+        }
+
+        logger.warn("Original string is {} bytes, attempting to truncate to {} bytes.", originalBytes.length, maxBytes);
+
+        // Initial truncation attempt
+        String currentString = new String(originalBytes, 0, maxBytes, StandardCharsets.UTF_8);
+
+        // Iteratively reduce the string if its byte representation is too long
+        // or if it ends with a U+FFFD (replacement character), indicating a split multi-byte char.
+        // Stop if the string becomes empty.
+        while (currentString.length() > 0) {
+            byte[] currentBytes = currentString.getBytes(StandardCharsets.UTF_8);
+            boolean endsWithReplacement = currentString.endsWith("\uFFFD");
+
+            if (currentBytes.length <= maxBytes && !endsWithReplacement) {
+                // Fits and doesn't end with U+FFFD, this is good.
+                break;
+            }
+
+            if (currentBytes.length > maxBytes || endsWithReplacement) {
+                 // If it's too long OR ends with U+FFFD (even if byte length is okay for now),
+                 // it means the truncation point was not ideal.
+                 // Remove the last character and try again.
+                 // This is a heuristic to remove potentially split characters or U+FFFD itself.
+                if (currentString.length() == 1 && endsWithReplacement) {
+                    // If it's just U+FFFD and we need to shorten, it becomes empty.
+                    // Or if it's a single char that's too long in bytes (e.g. emoji > maxBytes=1)
+                     currentString = "";
+                     break;
+                }
+                currentString = currentString.substring(0, currentString.length() - 1);
+            } else {
+                // Should not be reached if logic is correct, but as a fallback:
+                break;
+            }
+        }
+
+        // Final check on byte length after adjustments
+        byte[] finalBytes = currentString.getBytes(StandardCharsets.UTF_8);
+        if (finalBytes.length > maxBytes) {
+            // This is a fallback for extreme cases, should ideally not be hit if above loop works.
+            // Try constructing from a sub-array of original bytes known to be <= maxBytes.
+            // This might still split a char, resulting in U+FFFD, but byte length is king here.
+            logger.warn("Fallback: String still {} bytes after char reduction. Forcing byte array slice.", finalBytes.length);
+            // We need to find a length `l` for `new String(originalBytes, 0, l)` such that its UTF-8 bytes are <= maxBytes.
+            // This is non-trivial. A simple approach:
+            if (maxBytes == 0) currentString = "";
+            else {
+                // A cruder method if loop fails: take maxBytes from original byte array and form string.
+                // This is what the original problematic code did.
+                // The loop above should ideally prevent this.
+                // If we reach here, it means the character-by-character reduction strategy failed to get under budget.
+                // This can happen if maxBytes is very small (e.g., 1 or 2) and a single char (like U+FFFD) is 3 bytes.
+                // In such case, an empty string might be the only safe result if maxBytes is less than byte length of U+FFFD.
+                if (maxBytes < "\uFFFD".getBytes(StandardCharsets.UTF_8).length && currentString.equals("\uFFFD")) {
+                    currentString = ""; // If maxBytes is too small for even a replacement char.
+                } else {
+                    // Default to initial truncation if loop made it worse or empty.
+                    // This part is tricky, goal is to always be <= maxBytes.
+                    // If currentString is empty, originalBytes[0] might be an error.
+                    if (maxBytes > 0) {
+                        // Try to construct with fewer bytes from original array.
+                        // This is hard because `new String(bytes, 0, length)` doesn't guarantee resulting byte length.
+                        // The safest is to accept an empty string if reduction fails.
+                        // Or, re-truncate original byte array more aggressively.
+                        String temp = new String(originalBytes, 0, Math.min(maxBytes, originalBytes.length), StandardCharsets.UTF_8);
+                        while(temp.getBytes(StandardCharsets.UTF_8).length > maxBytes && temp.length() > 0) {
+                            temp = temp.substring(0, temp.length()-1);
+                        }
+                        currentString = temp;
+                        if(currentString.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
+                             // If still too long, this means maxBytes is too small for any char, make empty.
+                             currentString = "";
+                        }
+                    } else {
+                        currentString = "";
+                    }
+                }
+            }
+             logger.info("Final string after truncation: '{}', bytes: {}", currentString, currentString.getBytes(StandardCharsets.UTF_8).length);
+        }
+
+        // Remove trailing control characters or spaces, as in the original requirement.
+        return currentString.replaceAll("[\\p{C}\\p{Z}]+$", "");
     }
 
     private static final int MAX_LLM_ITERATIONS = 5; // Prevent infinite loops
@@ -261,12 +361,13 @@ public class McpController {
                     String errorMsg = "LLM attempted to use an invalid or unavailable tool: " + toolName + ". Aborting interaction.";
                     logger.warn(errorMsg);
                     conversationHistoryForDisplay.add(errorMsg);
-                    model.addAttribute("mcpCommandOutput", errorMsg);
+                    String truncatedErrorMsg = truncateStringByBytes(errorMsg, MAX_MCP_OUTPUT_BYTES);
+                    model.addAttribute("mcpCommandOutput", truncatedErrorMsg);
 
                     ChatMessage errorToolOutputMessage = new ChatMessage();
                     errorToolOutputMessage.setTaskId(taskId);
                     errorToolOutputMessage.setMcpCommand(mcpCommandString); // Log which command failed
-                    errorToolOutputMessage.setMcpCommandOutput(errorMsg);
+                    errorToolOutputMessage.setMcpCommandOutput(truncatedErrorMsg);
                     errorToolOutputMessage.setTimestamp(LocalDateTime.now());
                     chatMessageMapper.insert(errorToolOutputMessage);
                     taskHistory.add(errorToolOutputMessage);
@@ -278,8 +379,9 @@ public class McpController {
                     conversationHistoryForDisplay.add("Executing command: `" + toolParameters.get("user_command") + "`");
                 }
                 String mcpOutput = mcpService.executeMcpCommand(toolName, toolParameters);
-                conversationHistoryForDisplay.add("Tool '" + toolName + "' output:\n" + mcpOutput);
-                model.addAttribute("mcpCommandOutput", mcpOutput);
+                String truncatedOutput = truncateStringByBytes(mcpOutput, MAX_MCP_OUTPUT_BYTES);
+                conversationHistoryForDisplay.add("Tool '" + toolName + "' output:\n" + truncatedOutput);
+                model.addAttribute("mcpCommandOutput", truncatedOutput);
 
                 ChatMessage mcpOutputMessage = new ChatMessage();
                 mcpOutputMessage.setTaskId(taskId);
@@ -287,7 +389,7 @@ public class McpController {
                 // If llmResponse.getTextResponse() was present, it's already logged with toolCallMessage.
                 // Here we log the mcpCommandString again to link it directly to its output.
                 mcpOutputMessage.setMcpCommand(mcpCommandString);
-                mcpOutputMessage.setMcpCommandOutput(mcpOutput);
+                mcpOutputMessage.setMcpCommandOutput(truncatedOutput);
                 mcpOutputMessage.setTimestamp(LocalDateTime.now());
                 chatMessageMapper.insert(mcpOutputMessage);
                 taskHistory.add(mcpOutputMessage);
@@ -295,7 +397,7 @@ public class McpController {
 
                 model.addAttribute("lastExecutedToolName", toolName);
                 model.addAttribute("lastExecutedToolParams", toolParameters);
-                model.addAttribute("lastToolOutput", mcpOutput);
+                model.addAttribute("lastToolOutput", truncatedOutput); // Store truncated output here as well
 
                 if (i == MAX_LLM_ITERATIONS - 1) {
                     conversationHistoryForDisplay.add("Max iterations reached. Ending conversation.");
