@@ -6,7 +6,7 @@
         "/c",
         "{user_command}"
       ],
-      "description": "Executes a Windows command. Provide the full command string as the 'user_command' parameter. For example, to list directory contents, set 'user_command' to 'dir C:\\'.",
+      "description": "执行一个Windows命令。请将完整的命令字符串作为 'user_command' 参数提供。例如，要列出目录内容，请设置 'user_command' 为 'dir C:\\'.注意：此命令将在工作目录 'C:\\aidir' 中执行。对于其他位置的操作，请使用绝对路径，或者基于此工作目录使用相对路径。",
       "working_directory": "C:\\aidir"
     }
   }

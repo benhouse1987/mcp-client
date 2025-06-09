@@ -126,7 +126,7 @@ public class McpController {
             return "index";
         }
 
-        // This loop enables iterative interaction with the LLM.
+        // This loop enables iterative interaction with the LLM. The LLM is guided by system prompts now primarily in Chinese, emphasizing autonomous action.
         // It's capped by MAX_LLM_ITERATIONS to prevent endless cycles.
         // In each iteration, the LLM might call a tool or provide a text response.
         for (int i = 0; i < MAX_LLM_ITERATIONS; i++) {
@@ -221,7 +221,7 @@ public class McpController {
                 }
             }
 
-            // Send the accumulated context (system message, history, current user input/tool output) to the LLM.
+            // Send the accumulated context (system message, history, current user input/tool output) to the LLM. System messages are constructed by LargeModelService and are now mainly in Chinese, directing autonomous behavior.
             OpenAiChatRequest chatRequest = new OpenAiChatRequest(openAiModelName, messages);
             llmResponse = largeModelService.processOpenAiRequest(chatRequest);
 
