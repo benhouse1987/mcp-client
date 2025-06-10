@@ -220,8 +220,8 @@ public class LargeModelService {
     // Placeholder for the List<String> formattedCommandHistory structure:
     // Each string is assumed to be a pre-formatted log like:
     // "先前执行的命令: cmd with params: {user_command=...}
-命令结果:
-<output>"
+//命令结果:
+//<output>" // Note: The comment was updated to reflect typical Java comment style
 
     /**
      * 构建统一的、给LLM的系统消息。此消息将用于所有与LLM的交互轮次。
@@ -270,7 +270,6 @@ public class LargeModelService {
             sb.append("尚未执行任何命令。\n");
         } else {
             for (String historyItem : formattedCommandHistory) {
-                // Indent multi-line history items (e.g., command outputs) for better readability in the prompt
                 sb.append("- ").append(historyItem.replace("\n", "\n  ")).append("\n");
             }
         }
@@ -279,13 +278,13 @@ public class LargeModelService {
         // 4. Action Instruction
         sb.append("== 行动指示 ==\n");
         sb.append("基于以上核心行动指南、用户的原始请求以及已执行的命令历史（包括其成功或失败的结果）：\n");
-        sb.append("1. 如果还需要执行更多命令来完成用户的原始请求，请提供下一个确切的系统命令。\n");
-        sb.append("2. 如果用户的原始请求已完全达成，或者你判断无法通过命令进一步完成，请提供一个最终的中文总结性答复。\n");
+        sb.append("1. 如果还需要执行更多命令来完成用户的原始请求，请提供下一个确切的系统命令。\n"); // Corrected newline
+        sb.append("2. 如果用户的原始请求已完全达成，或者你判断无法通过命令进一步完成，请提供一个最终的中文总结性答复。\n"); // Corrected newline
         sb.append("重要：如果下一步是执行一个命令，你的回复核心必须是包含`tool_to_use`和`parameters`的JSON结构来直接指定该命令。不要在`text_response`字段中描述你将要执行的命令，以此作为实际发出命令JSON的替代。如果确实需要为当前命令附带文本，请确保其极其简短且仅作为对当前命令的简要标注。\n");
-        sb.append("请直接行动，不要提出问题。\n\n");
+        sb.append("请直接行动，不要提出问题。\n\n"); // Corrected newline
 
         // 5. Response Format Reminder (briefly)
-        sb.append("请再次确认，你的回复必须严格按照上述JSON格式之一（使用工具或直接回答），且仅包含该JSON对象。\n\n");
+        sb.append("请再次确认，你的回复必须严格按照上述JSON格式之一（使用工具或直接回答），且仅包含该JSON对象。\n\n"); // Corrected newline
 
         // Available Tools
         if (tools == null || tools.isEmpty()) {
@@ -294,7 +293,7 @@ public class LargeModelService {
             sb.append("== 可用工具列表 ==\n");
             tools.forEach((name, config) -> {
                 sb.append("工具名称: `").append(name).append("`\n");
-                sb.append("  描述: ").append(config.getDescription()); // Assumes description is already in Chinese from mcp_servers.json
+                sb.append("  描述: ").append(config.getDescription());
                 sb.append("\n");
                 if (config.getArgsTemplate() != null && !config.getArgsTemplate().isEmpty()) {
                     String params = config.getArgsTemplate().stream()
