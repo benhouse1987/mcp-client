@@ -29,6 +29,8 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 public class McpController {
 
     private static final Logger logger = LoggerFactory.getLogger(McpController.class);
+    // Phrase the LLM must include in its final text_response to explicitly signal task completion.
+    private static final String COMPLETION_PHRASE = "任务完成";
 
     private final McpService mcpService;
     private final LargeModelService largeModelService;
@@ -90,7 +92,7 @@ public class McpController {
         return "index";
     }
 
-    private static final int MAX_LLM_ITERATIONS = 5; // Prevent infinite loops
+    private static final int MAX_LLM_ITERATIONS = 100; // Prevent infinite loops
 
     @PostMapping("/execute")
     public String executeCommand(@RequestParam("command") String originalUserInput,
@@ -269,12 +271,29 @@ public class McpController {
                     conversationHistoryForDisplay.add("Max iterations reached. Ending conversation.");
                 }
             } else {
-                // If the LLM responds with text and no tool call, it means the task is considered complete
-                // or the LLM is providing a direct answer. The loop breaks.
-                logger.info("LLM provided a final response or no tool was called. Ending interaction loop.");
-                model.addAttribute("conversationHistory", conversationHistoryForDisplay);
-                break;
+                // LLM provided no tool call. Check if it's a final response with explicit completion.
+                if (llmResponse.getTextResponse() != null && !llmResponse.getTextResponse().isEmpty()) {
+                    if (llmResponse.getTextResponse().contains(COMPLETION_PHRASE)) {
+                        logger.info("LLM provided a final response with completion phrase ('{}'). Ending interaction loop.", COMPLETION_PHRASE);
+                        model.addAttribute("conversationHistory", conversationHistoryForDisplay);
+                        break; // Break only if completion phrase is present
+                    } else {
+                        logger.info("LLM provided a text response without the completion phrase. Task considered ongoing. Text: {}", llmResponse.getTextResponse());
+                        // Loop continues, LLM will be prompted again with updated history.
+                        // This covers cases where LLM might be explaining something or giving partial info.
+                    }
+                } else {
+                    // LLM provided no tool and no text response, or an empty text response.
+                    // This is unusual. Log it and continue, letting max iterations or next LLM decision handle it.
+                    logger.warn("LLM provided no tool and no (or empty) text response. Task considered ongoing by default.");
+                }
             }
+        }
+
+        if (llmResponse != null && (llmResponse.getToolToUse() != null || (llmResponse.getTextResponse() != null && !llmResponse.getTextResponse().contains(COMPLETION_PHRASE)))) {
+            // This condition means the loop finished by exhausting iterations, and the LLM didn't signal completion.
+            logger.warn("Task ID {} - Max iterations ({}) reached and LLM did not signal task completion with '{}'. Ending interaction.", taskId, MAX_LLM_ITERATIONS, COMPLETION_PHRASE);
+            conversationHistoryForDisplay.add("Max iterations reached. LLM did not explicitly confirm task completion.");
         }
 
         model.addAttribute("conversationHistory", conversationHistoryForDisplay);

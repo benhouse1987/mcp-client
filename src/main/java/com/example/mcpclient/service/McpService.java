@@ -67,7 +67,9 @@ public class McpService {
     public String executeMcpCommand(String serverName, Map<String, String> templateArguments) {
         if (mcpServerConfigurations == null || !mcpServerConfigurations.containsKey(serverName)) {
             logger.error("MCP server configuration not found for name: {}", serverName);
-            return "Error: MCP server configuration '" + serverName + "' not found.";
+            String configErrorResult = "Error: MCP server configuration '" + serverName + "' not found.";
+            logger.info("MCP command '{}' failed due to configuration issue. Result string:\n{}", serverName, configErrorResult);
+            return configErrorResult;
         }
 
         McpServerDetailsDto config = mcpServerConfigurations.get(serverName);
@@ -133,6 +135,7 @@ public class McpService {
                 if (errorString != null && !errorString.isEmpty()) {
                     timeoutMessage += "\nError Stream:\n" + errorString.trim();
                 }
+                logger.info("MCP command '{}' timed out. Result string:\n{}", serverName, timeoutMessage);
                 return timeoutMessage;
             }
 
@@ -140,20 +143,25 @@ public class McpService {
             logger.info("MCP command '{}' finished with exit code: {}.", serverName, exitCode);
 
             if (exitCode == 0) {
-                return "Output from '" + serverName + "':\n" + (outputString != null ? outputString.trim() : "");
+                String successResult = "Output from '" + serverName + "':\n" + (outputString != null ? outputString.trim() : "");
+                logger.info("MCP command '{}' completed successfully. Result string:\n{}", serverName, successResult);
+                return successResult;
             } else {
                 String result = "Error executing '" + serverName + "' (exit code " + exitCode + "):\n"
                                + (outputString != null ? outputString.trim() : "");
                 if (errorString != null && !errorString.isEmpty()) {
                     result += "\nError Stream:\n" + errorString.trim();
                 }
+                logger.info("MCP command '{}' finished with error (exit code {}). Result string:\n{}", serverName, exitCode, result);
                 return result;
             }
 
         } catch (IOException | InterruptedException e) {
             logger.error("Error executing MCP command '{}': {}", serverName, e.getMessage(), e);
             Thread.currentThread().interrupt(); // Restore interrupted status
-            return "Error: Could not execute command '" + serverName + "'. " + e.getMessage();
+            String executionErrorResult = "Error: Could not execute command '" + serverName + "'. " + e.getMessage();
+            logger.info("MCP command '{}' failed due to execution exception. Result string:\n{}", serverName, executionErrorResult);
+            return executionErrorResult;
         }
     }
 
