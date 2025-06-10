@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 public class LargeModelService {
 
     private static final Logger logger = LoggerFactory.getLogger(LargeModelService.class);
+    private static final int MAX_JSON_PARSE_ATTEMPTS = 3;
 
     @Value("${large.model.url}")
     private String modelUrl;
@@ -77,73 +78,143 @@ public class LargeModelService {
         return processOpenAiRequest(chatRequest);
     }
 
-    // ENSURED processOpenAiRequest IS PRESENT AND CORRECT
+    private String stripMarkdown(String content) {
+        if (content == null) return null;
+        String stripped = content;
+        if (stripped.startsWith("```json")) {
+            stripped = stripped.substring(7);
+        }
+        if (stripped.endsWith("```")) {
+            stripped = stripped.substring(0, stripped.length() - 3);
+        }
+        return stripped.trim();
+    }
+
+    /**
+     * Processes a chat request with the configured Large Language Model (LLM).
+     * This method sends the request to the LLM API and attempts to parse the response as an {@link LlmToolCallDto}.
+     *
+     * It implements a retry mechanism for JSON parsing:
+     * - If the LLM's response content is not valid JSON, or if the initial response structure is empty/invalid,
+     *   the method will retry the API call and parsing up to {@code MAX_JSON_PARSE_ATTEMPTS} times.
+     * - If all attempts fail to yield a parsable JSON that fits the expected DTO structure:
+     *   - If the failure was due to JSON parsing of the content, the last raw content is treated as a plain text response.
+     *   - If the failure was due to an empty/invalid LLM response structure (e.g., no choices), an error DTO is returned.
+     * - Non-parsing related errors (e.g., HTTP client/server errors during the API call, request serialization errors)
+     *   are typically not retried by this specific mechanism and will result in an error DTO being returned directly.
+     *
+     * @param chatRequest The {@link OpenAiChatRequest} to send to the LLM.
+     * @return An {@link LlmToolCallDto} representing the LLM's response, which might be a tool call,
+     *         a direct text response, a text response derived from a JSON parsing failure fallback,
+     *         or an error message.
+     */
     public LlmToolCallDto processOpenAiRequest(OpenAiChatRequest chatRequest) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
+        String requestBody;
+        HttpEntity<String> entity;
 
         try {
-            String requestBody = objectMapper.writeValueAsString(chatRequest);
-            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+            requestBody = objectMapper.writeValueAsString(chatRequest);
+            entity = new HttpEntity<>(requestBody, headers);
             logger.info("OpenAI Request Body: {}", requestBody);
-
-            ResponseEntity<OpenAiChatResponse> responseEntity = restTemplate.postForEntity(
-                    modelUrl, entity, OpenAiChatResponse.class);
-
-            OpenAiChatResponse chatResponse = responseEntity.getBody();
-
-            if (chatResponse != null && chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
-                String llmResponseContent = chatResponse.getChoices().get(0).getMessage().getContent();
-                // Strip markdown fences if present
-                if (llmResponseContent != null && llmResponseContent.startsWith("```json")) {
-                    llmResponseContent = llmResponseContent.substring(7);
-                }
-                if (llmResponseContent != null && llmResponseContent.endsWith("```")) {
-                    llmResponseContent = llmResponseContent.substring(0, llmResponseContent.length() - 3);
-                }
-                if (llmResponseContent != null) {
-                    llmResponseContent = llmResponseContent.trim();
-                }
-                logger.info("OpenAI Request Raw response from LLM (after stripping): {}", llmResponseContent);
-
-                try {
-                    LlmToolCallDto toolCall = objectMapper.readValue(llmResponseContent, LlmToolCallDto.class);
-                    if (toolCall.getToolToUse() != null || toolCall.getTextResponse() != null) {
-                        return toolCall;
-                    }
-                    logger.warn("LLM response parsed as JSON but not a valid tool call or text_response structure. Content: {}", llmResponseContent);
-                    LlmToolCallDto ambiguousJsonResponse = new LlmToolCallDto();
-                    ambiguousJsonResponse.setTextResponse(llmResponseContent);
-                    return ambiguousJsonResponse;
-                } catch (JsonProcessingException e) {
-                    logger.warn("Could not parse LLM response as JSON tool call: {}. Treating as plain text.", e.getMessage());
-                    LlmToolCallDto textOnlyResponse = new LlmToolCallDto();
-                    textOnlyResponse.setTextResponse(llmResponseContent);
-                    return textOnlyResponse;
-                }
-            }
-            logger.warn("No response choices received from LLM or response was empty.");
-            LlmToolCallDto errorResponse = new LlmToolCallDto();
-            errorResponse.setTextResponse("Error: No response from model or response was empty.");
-            return errorResponse;
-
-        } catch (HttpClientErrorException e) {
-            logger.error("HttpClientErrorException calling OpenAI: {} - {}", e.getStatusCode(), e.getResponseBodyAsString(), e);
-            LlmToolCallDto errorResponse = new LlmToolCallDto();
-            errorResponse.setTextResponse("Error from LLM API: " + e.getStatusCode() + " - " + e.getResponseBodyAsString());
-            return errorResponse;
         } catch (JsonProcessingException e) {
             logger.error("Error serializing request for OpenAI: {}", e.getMessage(), e);
             LlmToolCallDto errorResponse = new LlmToolCallDto();
             errorResponse.setTextResponse("Error preparing request for LLM: " + e.getMessage());
             return errorResponse;
-        } catch (Exception e) {
-            logger.error("Error processing text with Large Model: {}", e.getMessage(), e);
-            LlmToolCallDto errorResponse = new LlmToolCallDto();
-            errorResponse.setTextResponse("Error: Could not connect to Large Model or process its response. " + e.getMessage());
-            return errorResponse;
         }
+
+        String lastRawResponseContent = ""; // Store the last raw response in case all retries fail
+
+        // Retry loop for LLM API call and JSON parsing.
+        for (int attempt = 1; attempt <= MAX_JSON_PARSE_ATTEMPTS; attempt++) {
+            try {
+                // Make the HTTP call INSIDE the loop for retries
+                ResponseEntity<OpenAiChatResponse> responseEntity = restTemplate.postForEntity(modelUrl, entity, OpenAiChatResponse.class);
+                OpenAiChatResponse chatResponse = responseEntity.getBody();
+
+                if (chatResponse != null && chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
+                    String llmResponseContent = chatResponse.getChoices().get(0).getMessage().getContent();
+                    lastRawResponseContent = llmResponseContent; // Save for fallback
+
+                    llmResponseContent = stripMarkdown(llmResponseContent);
+                    logger.info("Attempt {}/{}: Raw response from LLM (after stripping): {}", attempt, MAX_JSON_PARSE_ATTEMPTS, llmResponseContent);
+
+                    // Attempt to parse the LLM's response content as JSON.
+                    try {
+                        // Inner try for JSON parsing of the content string
+                        LlmToolCallDto toolCall = objectMapper.readValue(llmResponseContent, LlmToolCallDto.class);
+                        if (toolCall.getToolToUse() != null || toolCall.getTextResponse() != null) {
+                            logger.info("Successfully parsed LLM response on attempt {}/{}", attempt, MAX_JSON_PARSE_ATTEMPTS);
+                            return toolCall; // Success
+                        }
+                        // Parsed as JSON, but not the expected LlmToolCallDto structure
+                        logger.warn("Attempt {}/{}: LLM response parsed as JSON but not a valid tool call or text_response structure. Content: {}", attempt, MAX_JSON_PARSE_ATTEMPTS, llmResponseContent);
+                        LlmToolCallDto ambiguousJsonResponse = new LlmToolCallDto();
+                        ambiguousJsonResponse.setTextResponse(llmResponseContent);
+                        return ambiguousJsonResponse;
+
+                    } catch (JsonProcessingException e) {
+                        // This is the JSON parsing failure for llmResponseContent
+                        logger.warn("Attempt {}/{}: Failed to parse LLM response as JSON. Error: {}. Raw content: '{}'", attempt, MAX_JSON_PARSE_ATTEMPTS, e.getMessage(), llmResponseContent);
+                        if (attempt < MAX_JSON_PARSE_ATTEMPTS) {
+                            // Parsing failed, but retries are available.
+                            logger.info("Retrying LLM request...");
+                            // Optional: Thread.sleep(RETRY_DELAY_MS);
+                            continue; // Next attempt
+                        } else {
+                            // All JSON parsing attempts failed, fall back to plain text.
+                            logger.error("All {} attempts to parse LLM response as JSON failed. Treating last response as plain text.", MAX_JSON_PARSE_ATTEMPTS);
+                            LlmToolCallDto textOnlyResponse = new LlmToolCallDto();
+                            textOnlyResponse.setTextResponse(lastRawResponseContent); // Use the last known raw content
+                            return textOnlyResponse;
+                        }
+                    }
+                } else { // Problem with chatResponse structure itself (null or no choices)
+                    logger.warn("Attempt {}/{}: No response choices received from LLM or response was empty.", attempt, MAX_JSON_PARSE_ATTEMPTS);
+                    if (attempt < MAX_JSON_PARSE_ATTEMPTS) {
+                        // Empty/invalid response structure, but retries are available.
+                        logger.info("Retrying LLM request due to empty/invalid response structure...");
+                        // Optional: Thread.sleep(RETRY_DELAY_MS);
+                        continue; // Next attempt
+                    } else {
+                        // All attempts failed due to empty/invalid response structure.
+                        logger.error("All {} attempts failed due to empty/invalid LLM response structure.", MAX_JSON_PARSE_ATTEMPTS);
+                        LlmToolCallDto errorResponse = new LlmToolCallDto();
+                        errorResponse.setTextResponse("Error: No response from model or response was empty after " + MAX_JSON_PARSE_ATTEMPTS + " attempts.");
+                        return errorResponse;
+                    }
+                }
+            } catch (HttpClientErrorException e) {
+                // HTTP error from LLM API (e.g., 4xx, 5xx). Not retried by this loop.
+                logger.error("HttpClientErrorException calling OpenAI (attempt {}/{}): {} - {}", attempt, MAX_JSON_PARSE_ATTEMPTS, e.getStatusCode(), e.getResponseBodyAsString(), e);
+                LlmToolCallDto errorResponse = new LlmToolCallDto();
+                errorResponse.setTextResponse("Error from LLM API: " + e.getStatusCode() + " - " + e.getResponseBodyAsString());
+                return errorResponse; // Exit after HTTP error, no retry for client/server http errors for now
+            } catch (Exception e) {
+                // Catch other potential exceptions during the HTTP call for this attempt
+                logger.error("Exception during LLM request attempt {}/{}: {}", attempt, MAX_JSON_PARSE_ATTEMPTS, e.getMessage(), e);
+                if (attempt < MAX_JSON_PARSE_ATTEMPTS) {
+                    // Other exception during this attempt, retries available.
+                    logger.info("Retrying LLM request due to exception...");
+                    // Optional: Thread.sleep(RETRY_DELAY_MS);
+                    continue; // Next attempt
+                } else {
+                    // All attempts failed due to other exceptions during LLM request.
+                    logger.error("All {} attempts failed due to exceptions during LLM request.", MAX_JSON_PARSE_ATTEMPTS);
+                    LlmToolCallDto errorResponse = new LlmToolCallDto();
+                    errorResponse.setTextResponse("Error: Could not connect to Large Model or process its response after " + MAX_JSON_PARSE_ATTEMPTS + " attempts. " + e.getMessage());
+                    return errorResponse;
+                }
+            }
+        }
+        // Fallback if loop somehow finishes without returning (should be unreachable if logic is correct)
+        logger.error("Reached end of processOpenAiRequest method unexpectedly. Returning generic error.");
+        LlmToolCallDto fallbackError = new LlmToolCallDto();
+        fallbackError.setTextResponse("Error: Unexpected issue processing LLM request.");
+        return fallbackError;
     }
 
     // Placeholder for the List<String> formattedCommandHistory structure:
